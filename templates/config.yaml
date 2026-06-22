@@ -1,0 +1,4 @@
+workers: 4
+claude_command:
+  - claude
+timeout_seconds: 300

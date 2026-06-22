@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-engine"
+version = "0.1.0"
+description = "A local repository-aware Context Engine powered by Claude CLI workers."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "typer>=0.9",
+  "PyYAML>=6.0",
+  "rich>=13.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+local-engine = "local_engine.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+include = ["local_engine*"]
