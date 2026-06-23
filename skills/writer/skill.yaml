@@ -1,0 +1,7 @@
+name: writer
+task_type: report
+description: Write a clear deliverable based on upstream findings.
+inputs: [repo_context, user_requirement]
+outputs: [document]
+default_agent: writer
+cache: {watched_paths: [README.md, 'docs/**', '**/*.md']}

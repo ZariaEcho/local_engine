@@ -2,3 +2,22 @@ workers: 4
 claude_command:
   - claude
 timeout_seconds: 300
+model_commands:
+  claude:
+    - claude
+  codex:
+    - codex
+execution:
+  max_retries: 2
+  fallback_model: codex
+  fallback_prompt: true
+  continue_on_failure: true
+  timeout_multiplier: 1.5
+review:
+  enabled: true
+  reviewer_agent: reviewer
+  review_skill: review_code
+  threshold: 0.75
+  max_rounds: 2
+  risky_task_types: [backend, frontend, refactor]
+  risky_tags: [code_change, architecture, security]

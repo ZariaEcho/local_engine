@@ -1,0 +1,5 @@
+name: BUILD
+keywords: [实现, 构建, 新增功能, 开发, build, implement, feature, fix bug]
+required_tasks: [build_plan, build_backend, build_frontend, build_test]
+optional_tasks: [integration_review, memory_update]
+context_sensitive: true

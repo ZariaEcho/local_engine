@@ -27,9 +27,9 @@ class ClaudeCLIWorker:
             )
         except subprocess.TimeoutExpired as exc:
             stderr = exc.stderr or "Claude CLI timed out after {0} seconds".format(self.timeout_seconds)
-            return WorkerResult(raw=str(stderr), failed=True, error_message="Claude CLI subprocess timed out")
+            return WorkerResult(raw=str(stderr), failed=True, error_message="Claude CLI subprocess timed out", failure_type="timeout")
         except OSError as exc:
-            return WorkerResult(raw=str(exc), failed=True, error_message="Claude CLI subprocess failed")
+            return WorkerResult(raw=str(exc), failed=True, error_message="Claude CLI subprocess failed", failure_type="unknown")
         if completed.returncode != 0:
             raw = completed.stderr or completed.stdout or "Claude CLI exited with code {0}".format(completed.returncode)
             return WorkerResult(raw=raw, failed=True, error_message="Claude CLI exited with code {0}".format(completed.returncode))

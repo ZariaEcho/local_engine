@@ -1,0 +1,5 @@
+name: AUDIT
+keywords: [审计, 审核, audit, inspect project, code review]
+required_tasks: [audit_scan, audit_analyze, audit_report]
+optional_tasks: [integration_review, memory_update]
+context_sensitive: true

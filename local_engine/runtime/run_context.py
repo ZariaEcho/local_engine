@@ -1,14 +1,17 @@
 """Paths belonging to one safe, report-oriented engine run."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from contextvars import ContextVar
 from pathlib import Path
-import uuid
 from typing import Any, Dict
 
 import yaml
 
 from local_engine.runtime.config import ensure_engine_home
+from local_engine.runtime.run_index import RunIndex
+
+
+_ACTIVE_RUN_ID: ContextVar[str] = ContextVar("local_engine_active_run_id", default="")
 
 
 @dataclass
@@ -34,6 +37,10 @@ class RunContext:
     @property
     def artifacts_dir(self) -> Path:
         return self.report_dir / "artifacts"
+
+    @property
+    def reviews_dir(self) -> Path:
+        return self.report_dir / "reviews"
 
     @property
     def deliverables_dir(self) -> Path:
@@ -62,18 +69,29 @@ def new_run_context(project_root: Path) -> RunContext:
     state = root / ".local_engine"
     if not state.is_dir():
         raise FileNotFoundError("project is not initialized; run `local-engine init --project <path>` first")
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    run_id = RunIndex().allocate(root)
+    _ACTIVE_RUN_ID.set(run_id)
     report_dir = state / "task_reports" / run_id
     global_run_dir = ensure_engine_home() / "runs" / run_id
     for directory in (
         report_dir,
-        global_run_dir,
         report_dir / "prompts",
         report_dir / "agent_outputs",
         report_dir / "patches",
         report_dir / "artifacts",
+        report_dir / "artifacts" / "errors",
+        report_dir / "artifacts" / "retries",
         report_dir / "deliverables",
+        report_dir / "reviews",
         report_dir / "internal",
     ):
         directory.mkdir(parents=True, exist_ok=True)
     return RunContext(run_id, root, state, report_dir, global_run_dir)
+
+
+def active_run_id() -> str:
+    return _ACTIVE_RUN_ID.get()
+
+
+def clear_active_run() -> None:
+    _ACTIVE_RUN_ID.set("")

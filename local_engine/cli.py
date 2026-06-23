@@ -1,20 +1,155 @@
 """Typer command-line interface for local_engine."""
 
 from pathlib import Path
+import json
 from typing import Any, Dict, Optional
+import webbrowser
 
 import typer
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
+import yaml
 
+from local_engine.agents.registry import AgentRegistry
 from local_engine.context.context_builder import list_modules
 from local_engine.runtime.doctor import run_doctor
 from local_engine.runtime.engine import Engine
 from local_engine.runtime.reporting import resolve_report
+from local_engine.runtime.run_index import RunIndex
+from local_engine.skills.registry import SkillRegistry
 
 
 app = typer.Typer(help="A local repository-aware Context Engine powered by Claude CLI workers.")
+agents_app = typer.Typer(help="Inspect dynamically loaded agent definitions.")
+skills_app = typer.Typer(help="Inspect dynamically loaded reusable skill definitions.")
+runs_app = typer.Typer(help="Inspect and open globally indexed engine runs.")
+app.add_typer(agents_app, name="agents")
+app.add_typer(skills_app, name="skills")
+app.add_typer(runs_app, name="runs")
+
+
+def _print_registry_error(exc: Exception) -> None:
+    typer.echo("Error: {0}".format(exc), err=True)
+    raise typer.Exit(code=1)
+
+
+@agents_app.command("list")
+def agents_list() -> None:
+    """List agent YAML definitions discovered from ``agents/``."""
+    try:
+        registry = AgentRegistry.load()
+    except (FileNotFoundError, ValueError) as exc:
+        _print_registry_error(exc)
+    table = Table(title="local-engine agents")
+    table.add_column("Name")
+    table.add_column("Primary model")
+    table.add_column("Skills")
+    table.add_column("Description")
+    for agent in registry:
+        table.add_row(agent.name, agent.model.primary, ", ".join(agent.skills), agent.description)
+    Console().print(table)
+
+
+@agents_app.command("show")
+def agents_show(name: str = typer.Argument(..., help="Agent name from agents/*.yaml.")) -> None:
+    """Show one fully resolved agent definition."""
+    try:
+        typer.echo(yaml.safe_dump(AgentRegistry.load().get(name).to_dict(), sort_keys=False, allow_unicode=True))
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        _print_registry_error(exc)
+
+
+@skills_app.command("list")
+def skills_list() -> None:
+    """List reusable skills discovered from ``skills/*/skill.yaml``."""
+    try:
+        registry = SkillRegistry.load()
+    except (FileNotFoundError, ValueError) as exc:
+        _print_registry_error(exc)
+    table = Table(title="local-engine skills")
+    table.add_column("Name")
+    table.add_column("Default agent")
+    table.add_column("Task type")
+    table.add_column("Inputs")
+    table.add_column("Outputs")
+    table.add_column("Description")
+    for skill in registry:
+        table.add_row(skill.name, skill.default_agent, skill.task_type, ", ".join(skill.inputs), ", ".join(skill.outputs), skill.description)
+    Console().print(table)
+
+
+@skills_app.command("show")
+def skills_show(name: str = typer.Argument(..., help="Skill name from skills/*/skill.yaml.")) -> None:
+    """Show one fully resolved skill definition."""
+    try:
+        typer.echo(yaml.safe_dump(SkillRegistry.load().get(name).to_dict(), sort_keys=False, allow_unicode=True))
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        _print_registry_error(exc)
+
+
+def _run_record_or_exit(run_id: Optional[str] = None, latest: bool = False) -> Dict[str, Any]:
+    index = RunIndex()
+    try:
+        record = index.latest() if latest else index.get(str(run_id or ""))
+    except ValueError as exc:
+        typer.echo("Error: {0}".format(exc), err=True)
+        raise typer.Exit(code=1)
+    if record is None:
+        typer.echo("Error: no matching run found", err=True)
+        raise typer.Exit(code=1)
+    return record
+
+
+@runs_app.command("list")
+def runs_list() -> None:
+    """List indexed runs newest first."""
+    table = Table(title="local-engine runs")
+    table.add_column("Run ID")
+    table.add_column("Status")
+    table.add_column("Intent")
+    table.add_column("Project")
+    table.add_column("Passed/Failed")
+    for record in RunIndex().list():
+        table.add_row(
+            str(record.get("run_id", "")),
+            str(record.get("status", "")),
+            str(record.get("intent", "")),
+            str(record.get("project", "")),
+            "{0}/{1}".format(record.get("passed_count", 0), record.get("failed_count", 0)),
+        )
+    Console().print(table)
+
+
+@runs_app.command("latest")
+def runs_latest() -> None:
+    """Show the newest indexed run."""
+    typer.echo(json.dumps(_run_record_or_exit(latest=True), ensure_ascii=False, indent=2))
+
+
+@runs_app.command("show")
+def runs_show(run_id: str = typer.Argument(..., help="Indexed run ID.")) -> None:
+    """Show one full run record."""
+    typer.echo(json.dumps(_run_record_or_exit(run_id=run_id), ensure_ascii=False, indent=2))
+
+
+@runs_app.command("open")
+def runs_open(run_id: str = typer.Argument(..., help="Indexed run ID.")) -> None:
+    """Open a run's final Markdown report in the system default application."""
+    record = _run_record_or_exit(run_id=run_id)
+    path = Path(str(record.get("report_path", record.get("final_report", "")))).expanduser()
+    if not path.is_file():
+        typer.echo("Error: report does not exist: {0}".format(path), err=True)
+        raise typer.Exit(code=1)
+    try:
+        opened = webbrowser.open(path.resolve().as_uri())
+    except Exception as exc:
+        typer.echo("Error: could not open {0}: {1}".format(path, exc), err=True)
+        raise typer.Exit(code=1)
+    if not opened:
+        typer.echo("Error: no system handler opened {0}".format(path), err=True)
+        raise typer.Exit(code=1)
+    typer.echo(str(path.resolve()))
 
 
 class RunProgress:
@@ -53,10 +188,24 @@ class RunProgress:
         row = self.task_rows.get(task_id)
         if row is None:
             return
+        if event == "task_attempt_failed":
+            lifecycle = payload.get("lifecycle_status")
+            if lifecycle:
+                self.progress.update(row, description="[yellow]{0}[/] {1}".format(task_id, lifecycle))
+            self.progress.console.print(
+                "[bold red]Worker attempt failed[/] for {0} ({1}): {2}".format(
+                    task_id, payload.get("stage", "attempt"), payload.get("error_message") or "unknown error"
+                )
+            )
+            if payload.get("error_output"):
+                self.progress.console.print("[red]{0}[/]".format(payload["error_output"]))
+            return
         if event == "task_started":
             self.progress.update(row, description="[cyan]{0}[/] running".format(task_id))
         elif event == "task_finished":
-            status = payload.get("status", "completed")
+            status = payload.get("lifecycle_status") or payload.get("status", "completed")
+            if payload.get("cache_action") == "reuse":
+                status = "skipped (cache reuse)"
             colour = "red" if payload.get("failed") else ("yellow" if status == "warning" else "green")
             self.progress.update(row, completed=1, description="[{0}]{1}[/{0}] {2}".format(colour, task_id, status))
             if self.overall is not None:
@@ -65,6 +214,8 @@ class RunProgress:
                 self.progress.console.print(
                     "[bold red]Claude CLI failed[/] for {0}: {1}".format(task_id, payload.get("error_message") or "unknown error")
                 )
+                if payload.get("error_output"):
+                    self.progress.console.print("[red]{0}[/]".format(payload["error_output"]))
 
 
 @app.command()
@@ -165,6 +316,7 @@ def run(
     input: Optional[Path] = typer.Option(None, "--input", help="Markdown or TXT requirement file."),
     mode: str = typer.Option("plan", "--mode", help="plan (default) or apply."),
     workers: Optional[int] = typer.Option(None, "--workers", min=1, help="Maximum concurrent workers."),
+    skill: Optional[str] = typer.Option(None, "--skill", help="Run one reusable skill instead of selecting an intent graph."),
     yes: bool = typer.Option(False, "--yes", help="Approve collected patches in apply mode."),
 ) -> None:
     """Classify, contextualize, and execute an intent-appropriate task graph."""
@@ -179,8 +331,17 @@ def run(
             raise typer.Exit(code=1)
     try:
         with RunProgress() as progress:
-            outcome = Engine().run(project, task, input, mode, workers, apply_approved=approved, event_callback=progress.handle)
-    except (FileNotFoundError, ValueError, PermissionError, RuntimeError) as exc:
+            outcome = Engine().run(
+                project,
+                task,
+                input,
+                mode,
+                workers,
+                apply_approved=approved,
+                event_callback=progress.handle,
+                skill=skill,
+            )
+    except (FileNotFoundError, ValueError, KeyError, PermissionError, RuntimeError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
         raise typer.Exit(code=1)
     typer.echo(_run_summary(outcome))

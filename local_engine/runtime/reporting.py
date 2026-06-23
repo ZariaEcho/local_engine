@@ -1,24 +1,16 @@
 """Durable run metadata and report discovery helpers."""
 
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
-
-from local_engine.runtime.config import ensure_engine_home, load_yaml
+from local_engine.runtime.run_index import RunIndex
 
 
 def write_run_metadata(global_run_dir: Path, payload: Dict[str, Any]) -> Path:
-    """Atomically refresh the small global index record for one run."""
-    global_run_dir.mkdir(parents=True, exist_ok=True)
+    """Compatibility adapter that updates the canonical JSON run index."""
     data = dict(payload)
-    data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    target = global_run_dir / "run_metadata.yaml"
-    temporary = target.with_suffix(".yaml.tmp")
-    temporary.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
-    temporary.replace(target)
-    return target
+    data.setdefault("run_id", Path(global_run_dir).name)
+    return RunIndex(Path(global_run_dir).parent).upsert(data)
 
 
 def resolve_report(
@@ -43,13 +35,15 @@ def resolve_report(
 
     if not (latest or run_id):
         return None
-    runs_dir = ensure_engine_home() / "runs"
-    candidates = [runs_dir / run_id / "run_metadata.yaml"] if run_id else sorted(
-        runs_dir.glob("*/run_metadata.yaml"), key=lambda path: path.stat().st_mtime, reverse=True
-    )
-    for metadata_path in candidates:
-        metadata = load_yaml(metadata_path)
-        final_report = Path(str(metadata.get("final_report", ""))).expanduser()
+    index = RunIndex()
+    candidates = [index.get(run_id)] if run_id else index.list()
+    for metadata in candidates:
+        if not isinstance(metadata, dict):
+            continue
+        final_report = Path(str(metadata.get("report_path", metadata.get("final_report", "")))).expanduser()
         if metadata.get("run_id") and final_report.is_file():
-            return metadata
+            value = dict(metadata)
+            value.setdefault("final_report", str(final_report))
+            value.setdefault("report_dir", str(final_report.parent))
+            return value
     return None

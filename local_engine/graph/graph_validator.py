@@ -2,25 +2,27 @@
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
-
-ALLOWED_SKILLS = {
-    "product",
-    "backend",
-    "frontend",
-    "tester",
-    "reviewer",
-    "integrator",
-    "memory_manager",
-    "researcher",
-    "writer",
-    "designer",
-    "data_analyst",
-}
 
 _ARTIFACT_OUTPUT_TYPES = {"report", "doc", "analysis", "research", "design"}
 _WARNING_SIP_TYPES = {"error", "parse_error", "unstructured"}
+
+
+def available_task_skills() -> Set[str]:
+    """Load the currently installed task capabilities instead of fixing them in code."""
+    try:
+        from local_engine.agents.registry import AgentRegistry
+        from local_engine.skills.registry import SkillRegistry
+
+        return set(AgentRegistry.load().names) | set(SkillRegistry.load().names)
+    except (FileNotFoundError, ValueError):
+        return set()
+
+
+# Compatibility export for integrations importing the old name. Validation refreshes
+# the registry each time, so edits to YAML files take effect without a code change.
+ALLOWED_SKILLS = available_task_skills()
 
 
 @dataclass
@@ -31,7 +33,7 @@ class GraphValidationResult:
     report: str
 
 
-def validate_graph(graph: Dict[str, Any]) -> None:
+def validate_graph(graph: Dict[str, Any], allowed_skills: Optional[Iterable[str]] = None) -> None:
     """Raise ``ValueError`` when a candidate is not a safe executable DAG."""
     if not isinstance(graph, dict):
         raise ValueError("task graph must be a mapping")
@@ -41,6 +43,9 @@ def validate_graph(graph: Dict[str, Any]) -> None:
     if not isinstance(tasks, list) or not tasks:
         raise ValueError("task graph must contain at least one task")
 
+    capabilities = set(allowed_skills) if allowed_skills is not None else available_task_skills()
+    if not capabilities:
+        raise ValueError("no dynamic agent or skill definitions are available")
     ids: List[str] = []
     for task in tasks:
         if not isinstance(task, dict):
@@ -53,8 +58,10 @@ def validate_graph(graph: Dict[str, Any]) -> None:
             raise ValueError("every graph task needs a non-empty id")
         if not isinstance(task["title"], str) or not task["title"].strip():
             raise ValueError("task `{0}` needs a non-empty title".format(task_id))
-        if task["skill"] not in ALLOWED_SKILLS:
+        if task["skill"] not in capabilities:
             raise ValueError("task `{0}` has an unsupported skill `{1}`".format(task_id, task["skill"]))
+        if "agent" in task and (not isinstance(task["agent"], str) or not task["agent"].strip()):
+            raise ValueError("task `{0}` has an invalid agent".format(task_id))
         if not isinstance(task["depends_on"], list) or not all(isinstance(value, str) for value in task["depends_on"]):
             raise ValueError("task `{0}` must provide dependencies as a list of task ids".format(task_id))
         _validate_expected_output(task_id, task["expected_output"])
@@ -74,20 +81,22 @@ def validate_graph(graph: Dict[str, Any]) -> None:
         raise ValueError("task graph must contain a memory update task")
 
 
-def validate_and_repair_graph(candidate: Any, run_id: str, requirement: Dict[str, Any]) -> GraphValidationResult:
+def validate_and_repair_graph(
+    candidate: Any, run_id: str, requirement: Dict[str, Any], allowed_skills: Optional[Iterable[str]] = None
+) -> GraphValidationResult:
     """Validate a planner candidate and make one deterministic repair attempt."""
     try:
-        validate_graph(candidate)
+        validate_graph(candidate, allowed_skills)
         return GraphValidationResult(candidate, False, [], "# Graph Repair Report\n\n## Actions\n- No repair was required.\n")
     except (TypeError, ValueError) as validation_error:
         from local_engine.graph.graph_repair import repair_graph
 
-        repair = repair_graph(candidate, run_id, requirement)
+        repair = repair_graph(candidate, run_id, requirement, allowed_skills=allowed_skills)
         warnings = ["Initial graph validation failed: {0}".format(validation_error)] + repair.warnings
         if repair.graph is None:
             return GraphValidationResult(None, False, warnings, _report(warnings))
         try:
-            validate_graph(repair.graph)
+            validate_graph(repair.graph, allowed_skills)
         except (TypeError, ValueError) as repaired_error:
             warnings.append("Repaired graph validation failed: {0}".format(repaired_error))
             return GraphValidationResult(None, False, warnings, _report(warnings))

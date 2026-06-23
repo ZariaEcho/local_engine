@@ -8,6 +8,8 @@ import yaml
 
 from local_engine.graph.dependency_resolver import ready_tasks
 from local_engine.kernel.schemas import TaskResult, WorkerResult, make_error_sip
+from local_engine.runtime.fallback import FallbackPolicy
+from local_engine.runtime.retry import RetryPolicy, invoke_worker, run_with_recovery, write_recovery_artifacts
 from local_engine.kernel.sip_parser import parse_sip
 from local_engine.scheduler.execution_state import ExecutionState
 
@@ -24,6 +26,13 @@ class ParallelScheduler:
         project_root: Path,
         agent_outputs_dir: Path,
         status_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        artifact_dir: Optional[Path] = None,
+        agent_resolver: Optional[Callable[[Dict[str, Any]], Any]] = None,
+        execution_config: Optional[Dict[str, Any]] = None,
+        result_finalizer: Optional[
+            Callable[[Dict[str, Any], str, Dict[str, TaskResult], TaskResult], TaskResult]
+        ] = None,
+        result_loader: Optional[Callable[[Dict[str, Any], Dict[str, TaskResult]], Optional[TaskResult]]] = None,
     ) -> Dict[str, TaskResult]:
         """Run ready tasks in batches; every task result is persisted before release."""
         state = ExecutionState()
@@ -39,7 +48,21 @@ class ParallelScheduler:
                 self._emit(status_callback, "task_started", task)
             with ThreadPoolExecutor(max_workers=min(self.workers, len(ready))) as executor:
                 futures = {
-                    executor.submit(self._execute, task, prompt_builder, worker_factory, project_root, agent_outputs_dir, state.results): task
+                    executor.submit(
+                        self._execute,
+                        task,
+                        prompt_builder,
+                        worker_factory,
+                        project_root,
+                        agent_outputs_dir,
+                        state.results,
+                        artifact_dir or (agent_outputs_dir.parent / "artifacts"),
+                        agent_resolver,
+                        execution_config or {},
+                        status_callback,
+                        result_finalizer,
+                        result_loader,
+                    ): task
                     for task in ready
                 }
                 for future in as_completed(futures):
@@ -65,23 +88,61 @@ class ParallelScheduler:
         project_root: Path,
         agent_outputs_dir: Path,
         known_results: Dict[str, TaskResult],
+        artifact_dir: Path,
+        agent_resolver: Optional[Callable[[Dict[str, Any]], Any]],
+        execution_config: Dict[str, Any],
+        status_callback: Optional[Callable[[str, Dict[str, Any]], None]],
+        result_finalizer: Optional[
+            Callable[[Dict[str, Any], str, Dict[str, TaskResult], TaskResult], TaskResult]
+        ],
+        result_loader: Optional[Callable[[Dict[str, Any], Dict[str, TaskResult]], Optional[TaskResult]]],
     ) -> TaskResult:
         dependencies = {dependency: known_results[dependency] for dependency in task.get("depends_on", [])}
+        if result_loader is not None:
+            cached = result_loader(task, dependencies)
+            if cached is not None:
+                self._persist(agent_outputs_dir, task, cached)
+                return cached
         prompt = prompt_builder(task, dependencies)
-        try:
-            worker_result = worker_factory().run(prompt, task, project_root)
-            if not isinstance(worker_result, WorkerResult):
-                worker_result = WorkerResult(raw=str(worker_result))
-        except Exception as exc:
-            worker_result = WorkerResult(raw=str(exc), failed=True, error_message="worker raised an exception")
+        agent = agent_resolver(task) if agent_resolver is not None else None
+        retry_policy = RetryPolicy.from_config(execution_config, agent)
+        fallback_policy = FallbackPolicy.from_config(execution_config, agent)
+        primary_model = getattr(getattr(agent, "model", None), "primary", "claude")
+        recovery = run_with_recovery(
+            lambda model, call_prompt, timeout=None: invoke_worker(worker_factory, model, call_prompt, task, project_root, timeout),
+            prompt,
+            task["id"],
+            primary_model,
+            retry_policy,
+            fallback_policy,
+            skill=task["skill"],
+            timeout_seconds=execution_config.get("timeout_seconds"),
+        )
+        for attempt in recovery.attempts:
+            if attempt.failed:
+                self._emit_attempt_failure(status_callback, task, attempt)
+        write_recovery_artifacts(artifact_dir, task["id"], recovery)
+        worker_result = recovery.worker_result
         raw = worker_result.raw or ""
         sip = make_error_sip(task["skill"], task["id"], raw or worker_result.error_message) if worker_result.failed else parse_sip(raw, task["skill"], task["id"])
         status = "failed_but_continued" if worker_result.failed else (
             "warning" if sip.get("type") in {"error", "parse_error", "unstructured"} else "completed"
         )
         result = TaskResult(
-            task["id"], raw, sip, failed=worker_result.failed, status=status, error_message=worker_result.error_message
+            task["id"],
+            raw,
+            sip,
+            failed=worker_result.failed,
+            status=status,
+            error_message=worker_result.error_message,
+            model=recovery.model,
+            retry_history=[attempt.to_dict() for attempt in recovery.attempts],
+            lifecycle_status="needs_human" if recovery.failure_type == "logic" else ("failed" if worker_result.failed else "completed"),
+            failure_type=recovery.failure_type or worker_result.failure_type,
+            warnings=[str(value) for value in sip.get("warnings", [])],
         )
+        if result_finalizer is not None:
+            result = result_finalizer(task, prompt, dependencies, result)
         self._persist(agent_outputs_dir, task, result)
         return result
 
@@ -138,9 +199,45 @@ class ParallelScheduler:
             "skill": task.get("skill", "unknown"),
         }
         if result is not None:
-            payload.update({"status": result.status, "failed": result.failed, "error_message": result.error_message})
+            payload.update(
+                {
+                    "status": result.status,
+                    "lifecycle_status": result.lifecycle_status,
+                    "cache_action": result.cache_action,
+                    "failed": result.failed,
+                    "error_message": result.error_message,
+                }
+            )
+            if result.failed:
+                payload["error_output"] = result.raw
         try:
             callback(event, payload)
         except Exception:
             # Terminal rendering must never affect task execution.
+            return
+
+    @staticmethod
+    def _emit_attempt_failure(callback: Optional[Callable[[str, Dict[str, Any]], None]], task: Dict[str, Any], attempt: Any) -> None:
+        if callback is None:
+            return
+        try:
+            callback(
+                "task_attempt_failed",
+                {
+                    "task_id": task["id"],
+                    "title": task.get("title", task["id"]),
+                    "stage": getattr(attempt, "stage", "attempt"),
+                    "model": getattr(attempt, "model", ""),
+                    "error_message": getattr(attempt, "error_message", ""),
+                    "error_output": getattr(attempt, "raw", ""),
+                    "failure_type": getattr(attempt, "failure_type", ""),
+                    "action": getattr(attempt, "action", ""),
+                    "lifecycle_status": (
+                        "format_retrying"
+                        if getattr(attempt, "failure_type", "") == "format"
+                        else ("logic_failed" if getattr(attempt, "failure_type", "") == "logic" else "running")
+                    ),
+                },
+            )
+        except Exception:
             return

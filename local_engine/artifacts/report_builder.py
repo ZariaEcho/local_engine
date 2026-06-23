@@ -17,10 +17,20 @@ def build_final_report(
     error_log: Optional[Path] = None,
 ) -> str:
     task_lines = []
+    unresolved_lines = []
     for task in graph["tasks"]:
         result = results[task["id"]]
         status = getattr(result, "status", task_status(result.sip))
-        task_lines.append("| {0} | {1} | {2} | {3} |".format(task["id"], task["skill"], task["expected_output"]["type"], status))
+        lifecycle = getattr(result, "lifecycle_status", status)
+        rounds = getattr(result, "review_rounds", 0)
+        review = getattr(result, "review_status", "skipped")
+        task_lines.append(
+            "| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} |".format(
+                task["id"], task.get("agent", "-"), task["skill"], task["expected_output"]["type"], status, lifecycle, getattr(result, "cache_action", "execute"), "{0} ({1})".format(review, rounds)
+            )
+        )
+        for issue in getattr(result, "unresolved_issues", []) or []:
+            unresolved_lines.append("- `{0}`: {1}".format(task["id"], issue))
     warning_lines = ["- {0}".format(warning) for warning in warnings] or ["- None"]
     patch_lines = ["- {0}".format(path.name) for path in patches] or ["- None"]
     artifact_lines = ["- {0}".format(path.name) for path in artifacts] or ["- None"]
@@ -31,12 +41,21 @@ def build_final_report(
         for task_id, result in results.items()
         if getattr(result, "status", "") == "failed_but_continued"
     ]
+    review_failures = [
+        (task_id, result)
+        for task_id, result in results.items()
+        if getattr(result, "lifecycle_status", "") == "failed" and not getattr(result, "failed", False)
+    ]
     error_lines = [
         "- `{0}`: {1} (see `agent_outputs/{0}.md`)".format(task_id, result.error_message or result.raw or "Claude CLI failed")
         for task_id, result in errors
     ] or ["- None"]
     if error_log is not None:
         error_lines.append("- Full failure evidence: `error.log`")
+    error_lines.extend(
+        "- `{0}`: review did not pass after {1} round(s)".format(task_id, getattr(result, "review_rounds", 0))
+        for task_id, result in review_failures
+    )
     return """# local_engine Final Report
 
 ## Run ID
@@ -54,9 +73,14 @@ Planner confidence: {planner_confidence}
 {count} tasks; independent tasks were scheduled in parallel where worker capacity allowed.
 
 ## Task Status
-| Task | Skill | Expected Output | Status |
-| --- | --- | --- | --- |
+    | Task | Agent | Skill | Expected Output | Execution | Lifecycle | Cache | Review |
+    | --- | --- | --- | --- | --- | --- | --- | --- |
 {task_lines}
+
+## Review Summary
+- Per-task review evidence is in `reviews/<task_id>.roundN.md`.
+- Unresolved issues:
+{unresolved_issues}
 
 ## Deliverables
 {deliverable_lines}
@@ -88,6 +112,7 @@ Planner confidence: {planner_confidence}
         planner_confidence=metadata.get("planner_confidence", 0.0),
         count=len(graph["tasks"]),
         task_lines="\n".join(task_lines),
+        unresolved_issues="\n".join(unresolved_lines) or "- None",
         deliverable_lines="\n".join(deliverable_lines),
         artifact_lines="\n".join(artifact_lines),
         patch_lines="\n".join(patch_lines),

@@ -1,0 +1,5 @@
+name: tester
+description: Test engineering agent for test strategy and regression coverage.
+skills: [tester, review_code]
+model: {primary: claude, fallback: codex}
+limits: {max_retries: 2}

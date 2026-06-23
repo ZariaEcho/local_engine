@@ -77,6 +77,8 @@ def _normalise(candidate: Dict[str, Any], raw: str, skill: str, task_id: str) ->
         "dependencies": _as_list(candidate.get("dependencies")),
         "artifacts": _as_list(candidate.get("artifacts")),
         "body": _as_body(candidate.get("body"), raw),
+        "warnings": _as_list(candidate.get("warnings")),
+        "failure_type": str(candidate.get("failure_type") or ""),
     }
 
 
@@ -92,6 +94,8 @@ def _empty_error(skill: str, task_id: str) -> Dict[str, Any]:
         "dependencies": [],
         "artifacts": [],
         "body": "",
+        "warnings": [],
+        "failure_type": "format",
     }
 
 
@@ -107,6 +111,8 @@ def _unstructured(raw: str, skill: str, task_id: str) -> Dict[str, Any]:
         "dependencies": [],
         "artifacts": [],
         "body": raw,
+        "warnings": [],
+        "failure_type": "format",
     }
 
 

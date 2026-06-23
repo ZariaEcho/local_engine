@@ -1,0 +1,5 @@
+name: frontend
+description: Frontend development agent for user interfaces and client integration.
+skills: [frontend, inspect_repo, fix_code]
+model: {primary: claude, fallback: codex}
+limits: {max_retries: 2}

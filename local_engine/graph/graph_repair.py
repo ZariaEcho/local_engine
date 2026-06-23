@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
 @dataclass
@@ -24,7 +24,9 @@ _OUTPUT_BY_SKILL = {
 }
 
 
-def repair_graph(candidate: Any, run_id: str, requirement: Dict[str, Any]) -> GraphRepairResult:
+def repair_graph(
+    candidate: Any, run_id: str, requirement: Dict[str, Any], allowed_skills: Optional[Iterable[str]] = None
+) -> GraphRepairResult:
     """Repair only predictable omissions; return ``None`` when fallback is safer."""
     warnings: List[str] = []
     if not isinstance(candidate, dict):
@@ -72,7 +74,7 @@ def repair_graph(candidate: Any, run_id: str, requirement: Dict[str, Any]) -> Gr
             warnings.append("Added title for `{0}`.".format(task_id))
 
         skill = str(task.get("skill") or "").strip()
-        if skill not in _allowed_skills():
+        if skill not in _allowed_skills(allowed_skills):
             skill = "writer" if _looks_like_content(requirement) else "reviewer"
             task["skill"] = skill
             warnings.append("Replaced invalid skill for `{0}` with `{1}`.".format(task_id, skill))
@@ -111,11 +113,13 @@ def repair_graph(candidate: Any, run_id: str, requirement: Dict[str, Any]) -> Gr
     return _result(graph, warnings)
 
 
-def _allowed_skills() -> Set[str]:
+def _allowed_skills(allowed_skills: Optional[Iterable[str]] = None) -> Set[str]:
+    if allowed_skills is not None:
+        return set(allowed_skills)
     # Imported lazily to keep repair usable by the validator without a module cycle.
-    from local_engine.graph.graph_validator import ALLOWED_SKILLS
+    from local_engine.graph.graph_validator import available_task_skills
 
-    return ALLOWED_SKILLS
+    return available_task_skills()
 
 
 def _requirement_payload(requirement: Dict[str, Any]) -> Dict[str, Any]:

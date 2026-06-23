@@ -11,6 +11,23 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "workers": 4,
     "claude_command": ["claude"],
     "timeout_seconds": 300,
+    "model_commands": {"claude": ["claude"], "codex": ["codex"]},
+    "execution": {
+        "max_retries": 2,
+        "fallback_model": "codex",
+        "fallback_prompt": True,
+        "continue_on_failure": True,
+        "timeout_multiplier": 1.5,
+    },
+    "review": {
+        "enabled": True,
+        "reviewer_agent": "reviewer",
+        "review_skill": "review_code",
+        "threshold": 0.75,
+        "max_rounds": 2,
+        "risky_task_types": ["backend", "frontend", "refactor"],
+        "risky_tags": ["code_change", "architecture", "security"],
+    },
 }
 DEFAULT_PREFERENCES: Dict[str, Any] = {"default_mode": "plan", "language": "en"}
 
@@ -64,7 +81,19 @@ def load_yaml(path: Path, defaults: Dict[str, Any] = None) -> Dict[str, Any]:
 
 def load_engine_config() -> Dict[str, Any]:
     home = ensure_engine_home()
-    return load_yaml(home / "config.yaml", DEFAULT_CONFIG)
+    configured = load_yaml(home / "config.yaml", DEFAULT_CONFIG)
+    merged = dict(DEFAULT_CONFIG)
+    merged.update(configured)
+    for key in ("model_commands", "execution", "review"):
+        defaults = DEFAULT_CONFIG[key]
+        value = configured.get(key)
+        if isinstance(value, dict):
+            nested = dict(defaults)
+            nested.update(value)
+            merged[key] = nested
+        else:
+            merged[key] = dict(defaults)
+    return merged
 
 
 def load_preferences() -> Dict[str, Any]:

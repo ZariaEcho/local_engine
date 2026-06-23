@@ -1,0 +1,5 @@
+name: integrator
+description: Integration agent for cross-task consistency and delivery readiness.
+skills: [integrator, review_code]
+model: {primary: claude, fallback: codex}
+limits: {max_retries: 2}
