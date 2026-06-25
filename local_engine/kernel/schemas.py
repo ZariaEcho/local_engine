@@ -13,6 +13,9 @@ SIP_DEFAULTS = {
     "risks": [],
     "dependencies": [],
     "artifacts": [],
+    "findings": [],
+    "recommendations": [],
+    "decisions": [],
     "body": "",
     "warnings": [],
     "failure_type": "",
@@ -22,8 +25,11 @@ SIP_DEFAULTS = {
 class FailureType(str, Enum):
     NETWORK = "network"
     FORMAT = "format"
-    LOGIC = "logic"
     TIMEOUT = "timeout"
+    LOGIC = "logic"
+    PERMISSION_REQUEST = "permission_request"
+    CLARIFICATION_REQUEST = "clarification_request"
+    TOOL_REQUEST = "tool_request"
     UNKNOWN = "unknown"
 
 
@@ -60,6 +66,8 @@ class TaskResult:
     context_patch: str = ""
     cache_action: str = "execute"
     source_run_id: str = ""
+    task_summary: Dict[str, List[str]] = None
+    output_quality: Dict[str, Any] = None
 
     def __post_init__(self) -> None:
         if self.retry_history is None:
@@ -70,6 +78,10 @@ class TaskResult:
             self.warnings = []
         if self.quality_reasons is None:
             self.quality_reasons = []
+        if self.task_summary is None:
+            self.task_summary = {}
+        if self.output_quality is None:
+            self.output_quality = {}
         if self.lifecycle_status == "pending":
             self.lifecycle_status = "failed" if self.failed else "completed"
 
@@ -86,6 +98,9 @@ def make_error_sip(skill: str, task_id: str, message: str) -> Dict[str, Any]:
         "risks": ["Task execution failed"],
         "dependencies": [],
         "artifacts": [],
+        "findings": [],
+        "recommendations": [],
+        "decisions": [],
         "body": message or "",
         "warnings": [],
         "failure_type": FailureType.UNKNOWN.value,

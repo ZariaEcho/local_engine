@@ -28,6 +28,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "risky_task_types": ["backend", "frontend", "refactor"],
         "risky_tags": ["code_change", "architecture", "security"],
     },
+    "quality": {
+        "min_body_characters": 80,
+        "max_body_characters": 12000,
+        "low_confidence_threshold": 0.5,
+    },
 }
 DEFAULT_PREFERENCES: Dict[str, Any] = {"default_mode": "plan", "language": "en"}
 
@@ -84,7 +89,7 @@ def load_engine_config() -> Dict[str, Any]:
     configured = load_yaml(home / "config.yaml", DEFAULT_CONFIG)
     merged = dict(DEFAULT_CONFIG)
     merged.update(configured)
-    for key in ("model_commands", "execution", "review"):
+    for key in ("model_commands", "execution", "review", "quality"):
         defaults = DEFAULT_CONFIG[key]
         value = configured.get(key)
         if isinstance(value, dict):

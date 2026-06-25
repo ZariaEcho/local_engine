@@ -13,7 +13,7 @@ from local_engine.runtime.config import ensure_engine_home
 
 
 _RUN_ID = re.compile(r"^(\d{4}-\d{2}-\d{2})-(\d{3,})$")
-_TERMINAL = {"completed", "completed_with_failures", "failed"}
+_TERMINAL = {"completed", "completed_with_failures", "partial", "failed", "interrupted"}
 
 
 def _now() -> str:
@@ -98,6 +98,24 @@ class RunIndex:
 
     def fail(self, run_id: str, error: str = "") -> Path:
         return self.upsert({"run_id": run_id, "status": "failed", "error": error})
+
+    def finalize(
+        self,
+        run_id: str,
+        status: str,
+        report_path: Optional[Path] = None,
+        completed_at: Optional[str] = None,
+        **extra: Any,
+    ) -> Path:
+        """Mark a run terminal while preserving any existing run metadata."""
+        payload: Dict[str, Any] = {"run_id": run_id, "status": status, "completed_at": completed_at or _now()}
+        if report_path is not None:
+            path = Path(report_path).expanduser().resolve()
+            payload["report_path"] = str(path)
+            payload["final_report"] = str(path)
+            payload.setdefault("report_dir", str(path.parent))
+        payload.update(extra)
+        return self.upsert(payload)
 
     def get(self, run_id: str) -> Optional[Dict[str, Any]]:
         self._import_legacy()

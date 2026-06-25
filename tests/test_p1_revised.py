@@ -23,9 +23,15 @@ class QualityWorker:
         self.calls.append((task["id"], task["skill"]))
         self.prompts[task["id"]] = prompt
         if task["skill"] == "review_code":
-            return WorkerResult(raw="type: review\nconfidence: 1\nbody: 'VERDICT: PASS'\n")
+            return WorkerResult(
+                raw="type: review\nconfidence: 1\nfindings: [review complete]\nrecommendations: [accept]\ndecisions: [pass]\nbody: 'VERDICT: PASS with sufficient detail for the output quality evaluator.'\n"
+            )
         return WorkerResult(
-            raw="type: report\nconfidence: {0}\nwarnings: []\nbody: completed\n".format(self.confidence)
+            raw=(
+                "type: report\nconfidence: {0}\nwarnings: []\n"
+                "findings: [completed]\nrecommendations: [continue]\ndecisions: [recorded]\n"
+                "body: completed with enough deterministic detail to satisfy the output quality evaluator and cache verification.\n"
+            ).format(self.confidence)
         )
 
 

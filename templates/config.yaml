@@ -21,3 +21,9 @@ review:
   max_rounds: 2
   risky_task_types: [backend, frontend, refactor]
   risky_tags: [code_change, architecture, security]
+quality:
+  min_body_characters: 80
+  max_body_characters: 12000
+  low_confidence_threshold: 0.5
+# Context quality is intentionally non-blocking. It is derived from the project
+# scan and persisted under each run's artifacts/ directory.

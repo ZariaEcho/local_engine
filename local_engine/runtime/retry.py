@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional
 from local_engine.kernel.schemas import FailureType, WorkerResult
 from local_engine.kernel.sip_parser import parse_sip
 from local_engine.runtime.fallback import FallbackPolicy
+from local_engine.runtime.errors import write_error_artifact
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,12 @@ def classify_failure(result: WorkerResult, skill: str, task_id: str) -> Optional
     if explicit in {item.value for item in FailureType}:
         return FailureType(explicit)
     text = "{0}\n{1}".format(result.error_message or "", result.raw or "").lower()
+    if _looks_like_permission_request(text):
+        return FailureType.PERMISSION_REQUEST
+    if _looks_like_clarification_request(text):
+        return FailureType.CLARIFICATION_REQUEST
+    if _looks_like_tool_request(text):
+        return FailureType.TOOL_REQUEST
     if "timeout" in text or "timed out" in text:
         return FailureType.TIMEOUT
     if result.failed and re.search(r"\b(network|connection|dns|socket|econn|unavailable|temporarily unavailable|rate limit)\b", text):
@@ -122,6 +129,24 @@ def _strict_format_prompt(prompt: str) -> tuple[str, str]:
     )
 
 
+def _execution_contract_prompt(prompt: str, execution_contract: str = "") -> tuple[str, str]:
+    patch = "Reinforced apply-mode execution contract"
+    contract = execution_contract.strip() or (
+        "## Execution Contract\n\n"
+        "Mode: apply\n"
+        "User write approval: granted\n"
+        "You are allowed to create, modify, and write files inside the allowed write root.\n"
+        "Do not ask for additional permission for file writes inside this directory.\n"
+    )
+    return (
+        prompt
+        + "\n\n# Permission Request Recovery\n"
+        + contract
+        + "\n\nContinue directly with the requested SIP output. Do not ask for write approval again.\n",
+        patch,
+    )
+
+
 def _compact_timeout_prompt(prompt: str) -> tuple[str, str]:
     limit = 12000
     compact = prompt if len(prompt) <= limit else prompt[:6000] + "\n\n[non-essential middle context removed after timeout]\n\n" + prompt[-6000:]
@@ -138,6 +163,8 @@ def run_with_recovery(
     fallback_policy: FallbackPolicy,
     skill: str = "",
     timeout_seconds: Optional[int] = None,
+    apply_approved: bool = False,
+    execution_contract: str = "",
 ) -> RecoveryResult:
     """Execute a bounded recovery route selected by deterministic failure type."""
     attempts: List[RecoveryAttempt] = []
@@ -190,6 +217,15 @@ def run_with_recovery(
         action = "retry_original_prompt"
     elif failure == FailureType.LOGIC:
         retry_count = 0
+    elif failure == FailureType.PERMISSION_REQUEST:
+        if apply_approved:
+            retry_count = 1
+            retry_prompt, patch = _execution_contract_prompt(prompt, execution_contract)
+            action, stage_prefix = "retry_with_execution_contract", "permission_retry"
+        else:
+            retry_count = 0
+    elif failure in {FailureType.CLARIFICATION_REQUEST, FailureType.TOOL_REQUEST}:
+        retry_count = 0
 
     for retry_number in range(1, retry_count + 1):
         stage = "retry_{0}".format(retry_number) if failure == FailureType.NETWORK else "{0}_{1}".format(stage_prefix, retry_number)
@@ -224,6 +260,52 @@ def run_with_recovery(
     return RecoveryResult(result, attempts, final_model, recovered=False, failure_type=failure.value)
 
 
+def _looks_like_permission_request(text: str) -> bool:
+    patterns = (
+        r"需要.{0,12}写入权限",
+        r"请.{0,8}批准",
+        r"批准写入",
+        r"是否可以继续",
+        r"是否批准",
+        r"请求权限",
+        r"写入权限",
+        r"\bwrite permission\b",
+        r"\bpermission to write\b",
+        r"\bneed approval\b",
+        r"\bplease approve\b",
+        r"\bapproval required\b",
+        r"\bcan i proceed\b",
+        r"\bmay i proceed\b",
+        r"\bpermission\b",
+    )
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def _looks_like_clarification_request(text: str) -> bool:
+    patterns = (
+        r"需要.{0,8}澄清",
+        r"请.{0,8}澄清",
+        r"需要更多信息",
+        r"\bclarification\b",
+        r"\bplease clarify\b",
+        r"\bplease specify\b",
+        r"\bwhich option\b",
+    )
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def _looks_like_tool_request(text: str) -> bool:
+    patterns = (
+        r"需要.{0,8}工具",
+        r"请运行",
+        r"\btool request\b",
+        r"\bneed to use (a )?tool\b",
+        r"\bplease run\b",
+        r"\brun (this )?command\b",
+    )
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
 def write_recovery_artifacts(artifacts_dir: Path, task_id: str, recovery: RecoveryResult) -> None:
     """Persist structured errors, retry decisions, and a legacy readable log."""
     failures = [attempt for attempt in recovery.attempts if attempt.failed]
@@ -241,13 +323,18 @@ def write_recovery_artifacts(artifacts_dir: Path, task_id: str, recovery: Recove
         return
     errors_dir = artifacts_dir / "errors"
     errors_dir.mkdir(parents=True, exist_ok=True)
-    error_payload = {
-        "task_id": task_id,
-        "final_failure_type": recovery.failure_type or failures[-1].failure_type,
-        "recovered": recovery.recovered,
-        "failures": [attempt.to_dict() for attempt in failures],
-    }
-    (errors_dir / "{0}.json".format(task_id)).write_text(json.dumps(error_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    final_failure = recovery.failure_type or failures[-1].failure_type or "unknown"
+    write_error_artifact(
+        artifacts_dir,
+        task_id,
+        "compiler" if final_failure == FailureType.FORMAT.value else "worker",
+        final_failure,
+        failures[-1].error_message or "worker/output failure",
+        recovery.recovered,
+        final_failure_type=final_failure,
+        recovered=recovery.recovered,
+        failures=[attempt.to_dict() for attempt in failures],
+    )
     lines = ["# Task Recovery Errors", "", "Task: `{0}`".format(task_id), ""]
     for attempt in failures:
         lines.extend([

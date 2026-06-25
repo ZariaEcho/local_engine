@@ -101,6 +101,14 @@ class TaskCache:
         result_data = record.get("result")
         if not isinstance(result_data, dict):
             return None
+        output_quality = result_data.get("output_quality")
+        if not isinstance(output_quality, dict) or not output_quality.get("complete"):
+            return None
+        try:
+            if float(output_quality.get("confidence", 0.0)) < 0.5:
+                return None
+        except (TypeError, ValueError):
+            return None
         return TaskResult(
             task_id=task["id"],
             raw=str(result_data.get("raw", "")),
@@ -121,6 +129,8 @@ class TaskCache:
             context_patch=str(result_data.get("context_patch", "")),
             cache_action="reuse",
             source_run_id=str(record.get("source_run_id", "")),
+            task_summary=dict(result_data.get("task_summary", {})),
+            output_quality=dict(output_quality),
         )
 
     def store(
@@ -133,7 +143,18 @@ class TaskCache:
         watched_paths: Iterable[str],
     ) -> None:
         watched_paths = list(watched_paths)
-        if not watched_paths or result.failed or result.lifecycle_status not in {"passed", "skipped"}:
+        output_quality = result.output_quality if isinstance(result.output_quality, dict) else {}
+        try:
+            cacheable_confidence = float(output_quality.get("confidence", 0.0)) >= 0.5
+        except (TypeError, ValueError):
+            cacheable_confidence = False
+        if (
+            not watched_paths
+            or result.failed
+            or result.lifecycle_status not in {"passed", "skipped"}
+            or not output_quality.get("complete")
+            or not cacheable_confidence
+        ):
             return
         key = self.key(task, input_hash, definition_hash)
         self.entries[key] = {
@@ -159,6 +180,8 @@ class TaskCache:
                 "quality_score": result.quality_score,
                 "quality_reasons": result.quality_reasons,
                 "context_patch": result.context_patch,
+                "task_summary": result.task_summary,
+                "output_quality": output_quality,
             },
         }
 

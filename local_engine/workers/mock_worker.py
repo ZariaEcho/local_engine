@@ -36,6 +36,9 @@ class MockWorker:
             "risks": [],
             "dependencies": task.get("depends_on", []),
             "artifacts": [],
-            "body": "Mock output for {0}".format(task_id),
+            "findings": ["Mock finding for {0}".format(task_id)],
+            "recommendations": ["Mock recommendation for {0}".format(task_id)],
+            "decisions": ["Mock decision for {0}".format(task_id)],
+            "body": "Mock output for {0}. This deterministic fixture contains enough detail for output quality evaluation.".format(task_id),
         }
         return WorkerResult(raw=yaml.safe_dump(payload, sort_keys=False))

@@ -1,5 +1,6 @@
 """Build task graphs by composing declarative intent, template, skill, and agent registries."""
 
+import re
 from typing import Any, Dict, Optional
 
 from local_engine.agents.registry import AgentRegistry
@@ -17,6 +18,7 @@ def build_graph(
     templates: Optional[TaskTemplateRegistry] = None,
     skills: Optional[SkillRegistry] = None,
     agents: Optional[AgentRegistry] = None,
+    project_type: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Resolve an intent's task requirements into a concrete executable DAG."""
     intents = intents or IntentRegistry.load()
@@ -24,7 +26,9 @@ def build_graph(
     skills = skills or SkillRegistry.load()
     agents = agents or AgentRegistry.load()
     definition = intents.get(intent or intents.default_name)
-    selected_names = list(definition.required_tasks) + list(definition.optional_tasks)
+    requirement = requirement or _default_requirement(definition.name, context)
+    project_type = project_type or {}
+    selected_names = _select_templates(definition, requirement, project_type)
     selected = [templates.get(name) for name in selected_names]
     task_ids = {template.name: template.task_id for template in selected}
     if len(set(task_ids.values())) != len(task_ids):
@@ -59,7 +63,13 @@ def build_graph(
         task["template"] = template.name
         tasks.append(task)
 
-    requirement = requirement or _default_requirement(definition.name, context)
+    warnings = []
+    if (
+        definition.name == "BUILD"
+        and project_type.get("project_type") == "algorithm_repository"
+        and not _explicit_web_request(requirement)
+    ):
+        warnings.append("BUILD graph adapted for algorithm_repository project type.")
     return {
         "run_id": run_id,
         "requirement": {
@@ -77,8 +87,10 @@ def build_graph(
             "graph_source": "dynamic",
             "registry_composed": True,
             "intent": definition.name,
+            "project_type": project_type,
+            "explicit_web_requested": _explicit_web_request(requirement),
             "context_available": bool(context) if definition.context_sensitive else False,
-            "warnings": [],
+            "warnings": warnings,
             "planner_confidence": 1.0,
             "registry_sources": {
                 "intents": str(intents.source_dir or ""),
@@ -153,3 +165,21 @@ def _default_requirement(intent: str, context: Any) -> Dict[str, str]:
         "real_goal": "Create a reviewable {0} result.".format(intent),
         "success_definition": "The graph executes with project context.",
     }
+
+
+def _select_templates(definition: Any, requirement: Dict[str, Any], project_type: Dict[str, Any]) -> list[str]:
+    if (
+        definition.name == "BUILD"
+        and project_type.get("project_type") == "algorithm_repository"
+        and not _explicit_web_request(requirement)
+    ):
+        return ["build_plan", "build_algorithm_generate", "build_algorithm_test", "integration_review", "memory_update"]
+    return list(definition.required_tasks) + list(definition.optional_tasks)
+
+
+def _explicit_web_request(requirement: Dict[str, Any]) -> bool:
+    text = " ".join(
+        str(requirement.get(key, ""))
+        for key in ("raw_requirement", "raw_summary", "user_goal", "real_goal", "success_definition")
+    ).casefold()
+    return re.search(r"\b(backend|frontend|api|ui|database|db|server|web app|web-app)\b", text) is not None

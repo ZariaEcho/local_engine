@@ -87,6 +87,26 @@ templates:
     depends_on: [build_backend, build_frontend]
     expected_output: {type: report, path: artifacts/test/TEST_PLAN.md}
     constraints: *safe
+  - name: build_algorithm_generate
+    task_type: code_generation
+    id: generate_algorithm_files
+    title: Generate algorithm implementation files
+    depends_on: [build_plan]
+    risk_tags: [code_change]
+    review_required: true
+    expected_output: {type: patch, path: patches/ALGORITHM_FILES.patch}
+    constraints:
+      must: [Use repository context and state uncertainty., Generate algorithm-focused files only.]
+      must_not: [Do not modify files outside the project root., Do not create generic web-app scaffolding unless the user explicitly requested it.]
+  - name: build_algorithm_test
+    task_type: test_generation
+    id: test_algorithm_files
+    title: Generate algorithm tests
+    depends_on: [build_algorithm_generate]
+    expected_output: {type: patch, path: patches/ALGORITHM_TESTS.patch}
+    constraints:
+      must: [Use repository context and state uncertainty., Cover generated algorithm behavior with focused tests.]
+      must_not: [Do not modify files outside the project root., Do not create generic web-app scaffolding unless the user explicitly requested it.]
   - name: test_scan
     task_type: scan
     id: scan

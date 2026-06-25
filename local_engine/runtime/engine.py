@@ -11,33 +11,42 @@ import yaml
 
 from local_engine.agents.registry import AgentRegistry
 from local_engine.agents.schema import validate_agent_skill_references
+from local_engine.artifacts.recover_report import detect_status, recover_report
 from local_engine.artifacts.artifact_store import ArtifactStore
 from local_engine.artifacts.patch_collector import collect_patches
 from local_engine.artifacts.report_builder import build_final_report
-from local_engine.compiler.prompt_compiler import compile_task_prompt
+from local_engine.compiler.prompt_compiler import compile_task_prompt, context_quality_warnings_section
 from local_engine.context.context_builder import build_context, repo_summary, write_project_context
+from local_engine.context.context_quality import ContextQualityReport, assess_context_quality
+from local_engine.context.project_type import detect_project_type
 from local_engine.context.repo_scanner import RepoInfo, scan_project
 from local_engine.eval.eval_runner import build_eval_report
 from local_engine.graph.dynamic_builder import build_graph, build_skill_graph
+from local_engine.graph.graph_quality import GraphQualityError, graph_quality_check
 from local_engine.graph.graph_validator import validate_graph
 from local_engine.intake.input_loader import load_input
 from local_engine.intake.requirement_normalizer import normalize_requirement
 from local_engine.integrator.integrator import build_integration_review
 from local_engine.intents.registry import IntentRegistry
+from local_engine.intents.classification import ClarificationRequired, ClassificationResult
 from local_engine.memory.memory_loader import load_engine_memory, load_project_memory, read_text
 from local_engine.memory.memory_writer import write_memory_update
 from local_engine.runtime.config import ensure_engine_home, load_engine_config, load_preferences, load_yaml
+from local_engine.runtime.errors import write_error_artifact
+from local_engine.runtime.execution_context import RunExecutionContext
 from local_engine.runtime.fallback import FallbackPolicy
 from local_engine.runtime.reporting import write_run_metadata
 from local_engine.runtime.retry import RetryPolicy, invoke_worker, run_with_recovery, write_recovery_artifacts
 from local_engine.runtime.run_context import RunContext, active_run_id, clear_active_run, new_run_context
 from local_engine.runtime.run_index import RunIndex
 from local_engine.runtime.task_cache import TaskCache, fingerprint_repository, stable_hash
+from local_engine.runtime.quality import QualityEvaluator
+from local_engine.runtime.task_summary import build_task_summary
 from local_engine.safety.approval_gate import require_approval
 from local_engine.safety.patch_validator import validate_patch_set
 from local_engine.safety.permission_guard import validate_project_root
 from local_engine.scheduler.parallel_scheduler import ParallelScheduler
-from local_engine.kernel.schemas import TaskResult, make_error_sip
+from local_engine.kernel.schemas import FailureType, TaskResult, make_error_sip
 from local_engine.kernel.sip_parser import parse_sip
 from local_engine.skills.registry import SkillRegistry
 from local_engine.task_templates.registry import TaskTemplateRegistry
@@ -58,6 +67,14 @@ class RunOutcome:
         return any(status in {"failed_but_continued", "failed", "needs_human", "logic_failed"} for status in self.task_statuses.values())
 
 
+_NEEDS_HUMAN_FAILURES = {
+    FailureType.LOGIC.value,
+    FailureType.PERMISSION_REQUEST.value,
+    FailureType.CLARIFICATION_REQUEST.value,
+    FailureType.TOOL_REQUEST.value,
+}
+
+
 def _indexed_run(method: Callable[..., RunOutcome]) -> Callable[..., RunOutcome]:
     """Finalize a reserved run record if execution raises unexpectedly."""
     def wrapped(*args: Any, **kwargs: Any) -> RunOutcome:
@@ -66,16 +83,53 @@ def _indexed_run(method: Callable[..., RunOutcome]) -> Callable[..., RunOutcome]
             outcome = method(*args, **kwargs)
             clear_active_run()
             return outcome
+        except KeyboardInterrupt:
+            run_id = active_run_id()
+            if run_id:
+                try:
+                    _finalize_recoverable_run(run_id, "KeyboardInterrupt", forced_status="interrupted")
+                finally:
+                    clear_active_run()
+            raise
         except Exception as exc:
             run_id = active_run_id()
             if run_id:
                 try:
-                    RunIndex().fail(run_id, str(exc))
+                    _finalize_recoverable_run(run_id, str(exc))
                 finally:
                     clear_active_run()
             raise
 
     return wrapped
+
+
+def _finalize_recoverable_run(run_id: str, error: str = "", forced_status: Optional[str] = None) -> None:
+    """Best-effort report recovery used when the runtime exits before normal finalization."""
+    index = RunIndex()
+    record = index.get(run_id) or {}
+    report_dir_text = str(record.get("report_dir", "")).strip()
+    report_dir = Path(report_dir_text).expanduser() if report_dir_text else None
+    if report_dir is None or not report_dir.is_dir():
+        index.finalize(run_id, status=forced_status or "failed", error=error)
+        return
+
+    final_report = report_dir / "final_report.md"
+    if forced_status == "interrupted":
+        write_error_artifact(
+            report_dir / "artifacts",
+            "interrupted",
+            "context",
+            "KeyboardInterrupt",
+            "Run interrupted by KeyboardInterrupt",
+            False,
+        )
+    elif error and not final_report.is_file():
+        write_error_artifact(report_dir / "artifacts", "run", "context", "RuntimeError", error, False)
+
+    if not final_report.is_file():
+        final_report = recover_report(report_dir)
+    status = forced_status or detect_status(report_dir)
+    index.finalize(run_id, status=status, report_path=final_report, report_dir=str(report_dir), error=error)
 
 
 class Engine:
@@ -111,18 +165,57 @@ class Engine:
         (state / "context.md").write_text(context_path.read_text(encoding="utf-8"), encoding="utf-8")
         return repo_info
 
-    def preview_graph(self, project_root: Path, task_text: str = "") -> Dict[str, Any]:
+    def context_quality(self, project_root: Path, repo_info: Optional[RepoInfo] = None) -> ContextQualityReport:
+        """Refresh or assess repository context for CLI inspection without a worker run."""
+        root = validate_project_root(project_root)
+        info = repo_info if repo_info is not None else self.scan(root)
+        context = read_text(root / ".local_engine" / "PROJECT_CONTEXT.md")
+        return assess_context_quality(root, info, context)
+
+    def classify_request(
+        self,
+        task_text: str,
+        input_file: Optional[Path] = None,
+        intent_override: Optional[str] = None,
+        skill: Optional[str] = None,
+    ) -> ClassificationResult:
+        """Classify an input before allocating a run or constructing a graph."""
+        loaded = load_input(task_text, input_file)
+        normalized = normalize_requirement(loaded)
+        return self._classify_requirement(
+            IntentRegistry.load(), normalized["raw_requirement"], intent_override=intent_override, skill=skill
+        )
+
+    def preview_graph(
+        self, project_root: Path, task_text: str = "", intent_override: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Return a validated intent graph without invoking any Claude worker."""
         repo_info = self.scan(project_root)
         text = task_text or "Create a project plan"
         normalized = normalize_requirement({"raw": text, "task_text": text, "source_type": "text"})
+        project_type = detect_project_type(Path(project_root).expanduser().resolve(), repo_info, normalized)
         intents = IntentRegistry.load()
         templates = TaskTemplateRegistry.load()
         skills = SkillRegistry.load()
         agents = AgentRegistry.load()
-        intent = intents.classify(text)
-        graph = build_graph(intent, build_context(repo_info), "preview", normalized, intents, templates, skills, agents)
+        classification = self._classify_requirement(intents, normalized["raw_requirement"], intent_override=intent_override)
+        graph = build_graph(
+            classification.intent,
+            build_context(repo_info),
+            "preview",
+            normalized,
+            intents,
+            templates,
+            skills,
+            agents,
+            project_type=project_type.to_dict(),
+        )
+        graph.setdefault("metadata", {})["classification"] = classification.to_dict()
         validate_graph(graph, self._capabilities())
+        quality = graph_quality_check(graph, classification.intent, intents, templates)
+        graph["metadata"]["graph_quality"] = quality.to_dict()
+        if not quality.passed:
+            raise GraphQualityError(quality)
         return graph
 
     @_indexed_run
@@ -137,16 +230,35 @@ class Engine:
         apply_approved: bool = False,
         event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         skill: Optional[str] = None,
+        intent_override: Optional[str] = None,
     ) -> RunOutcome:
         if mode not in {"plan", "apply"}:
             raise ValueError("mode must be 'plan' or 'apply'")
         root = validate_project_root(project_root)
-        context = new_run_context(root)
-        config = load_engine_config()
         agents = AgentRegistry.load()
         skills = SkillRegistry.load()
         intents = IntentRegistry.load()
         templates = TaskTemplateRegistry.load()
+        loaded = load_input(task_text, input_file)
+        normalized = normalize_requirement(loaded)
+        classification = self._classify_requirement(
+            intents, normalized["raw_requirement"], intent_override=intent_override, skill=skill
+        )
+        context = new_run_context(root)
+        write_run_metadata(
+            context.global_run_dir,
+            {
+                "run_id": context.run_id,
+                "project": str(root),
+                "project_root": str(root),
+                "input": normalized["raw_requirement"],
+                "report_dir": str(context.report_dir),
+                "report_path": "",
+                "deliverables_path": str(context.deliverables_dir),
+                "status": "running",
+            },
+        )
+        config = load_engine_config()
         for agent in agents:
             validate_agent_skill_references(agent, skills.names)
         _preferences = load_preferences()  # loaded intentionally; preferences are part of the run contract
@@ -154,6 +266,14 @@ class Engine:
         repo_info = self.scan(root)
         repository_fingerprint = fingerprint_repository(root, context.project_state / "cache")
         project_context = read_text(context.project_state / "PROJECT_CONTEXT.md")
+        context_quality = assess_context_quality(root, repo_info, project_context)
+        project_type = detect_project_type(root, repo_info, normalized)
+        execution_context = RunExecutionContext(
+            mode=mode,
+            apply_approved=apply_approved,
+            project_root=root,
+            allowed_write_root=root,
+        )
         if project_config:
             project_context = "{0}\n\n# Project Config\n{1}".format(
                 project_context, yaml.safe_dump(project_config, sort_keys=False)
@@ -161,15 +281,19 @@ class Engine:
         project_memory = load_project_memory(context.project_state)
         engine_memory = load_engine_memory()
 
-        loaded = load_input(task_text, input_file)
-        normalized = normalize_requirement(loaded)
         context.write_text("raw_input.md", loaded["raw"])
         context.write_yaml("normalized_requirement.yaml", normalized)
         context.write_text("repo_context.json", json.dumps(repo_info.to_dict(), ensure_ascii=False, indent=2) + "\n")
+        project_type_json = context.write_text("artifacts/project_type.json", project_type.to_json())
         context.write_yaml("internal/repo_map.yaml", repo_info.to_dict())
         context.write_text("internal/PROJECT_CONTEXT.md", project_context)
-        intent = intents.classify(normalized["raw_requirement"])
+        context_quality_json = context.write_text(
+            "artifacts/context_quality.json", json.dumps(context_quality.to_dict(), ensure_ascii=False, indent=2) + "\n"
+        )
+        context_quality_markdown = context.write_text("artifacts/context_quality.md", context_quality.to_markdown())
+        intent = classification.intent
         context.write_text("internal/intent.txt", intent + "\n")
+        context.write_yaml("internal/classification.yaml", classification.to_dict())
 
         if worker_factory is None:
             worker_factory = self._configured_worker_factory(config)
@@ -179,14 +303,35 @@ class Engine:
             graph = build_skill_graph(context.run_id, normalized, selected.name, selected.default_agent)
             intent = "SKILL"
         else:
-            graph = build_graph(intent, project_context, context.run_id, normalized, intents, templates, skills, agents)
+            graph = build_graph(
+                intent,
+                project_context,
+                context.run_id,
+                normalized,
+                intents,
+                templates,
+                skills,
+                agents,
+                project_type=project_type.to_dict(),
+            )
+        graph.setdefault("metadata", {})["classification"] = classification.to_dict()
         resolved_agents, resolved_skills = self._resolve_task_capabilities(graph, agents, skills)
         validate_graph(graph, set(agents.names) | set(skills.names))
+        graph_quality = graph_quality_check(graph, intent, intents, templates)
+        graph["metadata"]["graph_quality"] = graph_quality.to_dict()
         context.write_yaml("task_graph.yaml", graph)
+        context.write_text(
+            "artifacts/graph_quality.json", json.dumps(graph_quality.to_dict(), ensure_ascii=False, indent=2) + "\n"
+        )
+        context.write_text("internal/graph_quality.md", graph_quality.to_markdown())
+        if not graph_quality.passed:
+            raise GraphQualityError(graph_quality)
         input_hash = stable_hash(
             {
                 "requirement": normalized,
                 "intent": intent,
+                "classification": classification.to_dict(),
+                "project_type": project_type.to_dict(),
                 "intent_definition": intents.get(intent).to_dict() if intent != "SKILL" else {},
                 "mode": mode,
                 "selected_skill": skill or "",
@@ -217,6 +362,8 @@ class Engine:
             "mode": mode,
             "graph_source": graph.get("metadata", {}).get("graph_source"),
             "intent": intent,
+            "classification": classification.to_dict(),
+            "project_type": project_type.to_dict(),
             "status": "running",
             "task_count": len(graph["tasks"]),
             "passed_count": 0,
@@ -238,6 +385,8 @@ class Engine:
                 repo_summary(repo_info),
                 agent=resolved_agents[task["id"]],
                 skill_definition=resolved_skills[task["id"]],
+                context_quality_warnings=context_quality.warnings,
+                execution_context=execution_context,
             )
             context.write_text("prompts/{0}.prompt.md".format(task["id"]), prompt)
             return prompt
@@ -259,6 +408,8 @@ class Engine:
                 resolved_agents,
                 resolved_skills,
                 config,
+                context_quality.warnings,
+                execution_context,
             )
 
         def load_cached(task: Dict[str, Any], dependencies: Dict[str, TaskResult]) -> Optional[TaskResult]:
@@ -276,18 +427,24 @@ class Engine:
                 return None
             context.write_text(
                 "prompts/{0}.prompt.md".format(task["id"]),
-                "# Cache Reuse\n\nReused verified task `{0}` from run `{1}`.\n".format(task["id"], cached.source_run_id),
+                "# Cache Reuse\n\nReused verified task `{0}` from run `{1}`.\n\n{2}\n".format(
+                    task["id"], cached.source_run_id, context_quality_warnings_section(context_quality.warnings)
+                ),
             )
-            quality = {
-                "task_id": task["id"],
-                "confidence": cached.quality_score,
-                "warnings": cached.warnings,
-                "triggers": cached.quality_reasons,
-                "review_status": cached.review_status,
-                "lifecycle_status": "skipped",
-                "cache_action": "reuse",
-                "source_run_id": cached.source_run_id,
-            }
+            if not cached.task_summary:
+                cached.task_summary = build_task_summary(cached)
+            context.write_yaml("artifacts/task_summaries/{0}.yaml".format(task["id"]), cached.task_summary)
+            quality = dict(cached.output_quality)
+            quality.update(
+                {
+                    "task_id": task["id"],
+                    "triggers": cached.quality_reasons,
+                    "review_status": cached.review_status,
+                    "lifecycle_status": "skipped",
+                    "cache_action": "reuse",
+                    "source_run_id": cached.source_run_id,
+                }
+            )
             context.write_text("artifacts/quality/{0}.json".format(task["id"]), json.dumps(quality, ensure_ascii=False, indent=2) + "\n")
             if cached.context_patch:
                 context.write_text("artifacts/context_patches/{0}.md".format(task["id"]), cached.context_patch)
@@ -306,6 +463,8 @@ class Engine:
             execution_config={
                 **(config.get("execution", {}) if isinstance(config.get("execution"), dict) else {}),
                 "timeout_seconds": config.get("timeout_seconds", 300),
+                "apply_approved": apply_approved,
+                "execution_contract": execution_context.to_prompt_section(),
             },
             result_finalizer=finalize_task,
             result_loader=load_cached,
@@ -324,11 +483,14 @@ class Engine:
         review_summary = self._write_review_summary(graph, results, context)
         patch_paths = collect_patches(results, context.patches_dir, graph)
         artifact_paths, deliverable_paths = self._write_task_outputs(graph, results, context)
+        artifact_paths.extend([context_quality_json, context_quality_markdown, project_type_json])
         artifact_paths.append(review_summary)
         artifact_paths.extend(self._write_execution_artifacts(graph, results, context))
         self._store_durable_artifacts(graph, results, root, intent)
         integration_review, integration_warnings = build_integration_review(results, patch_paths, graph)
-        warnings = list(graph.get("metadata", {}).get("warnings", [])) + integration_warnings
+        warnings = self._collect_run_warnings(
+            graph, graph_quality, context_quality, classification, results, integration_warnings
+        )
         context.write_text("integration_review.md", integration_review)
         context.write_text("eval_report.md", build_eval_report(graph, results, context.report_dir, mode))
         memory_update = write_memory_update(context.project_state, context.run_id, warnings)
@@ -344,7 +506,15 @@ class Engine:
         final = context.write_text(
             "final_report.md",
             build_final_report(
-                context.run_id, graph, results, warnings, patch_paths, artifact_paths, deliverable_paths, error_log=error_log
+                context.run_id,
+                graph,
+                results,
+                warnings,
+                patch_paths,
+                artifact_paths,
+                deliverable_paths,
+                error_log=error_log,
+                context_quality=context_quality.to_dict(),
             ),
         )
         task_statuses = {
@@ -358,9 +528,10 @@ class Engine:
             for task_id in task_statuses
         )
         failed_count = len(task_statuses) - passed_count
+        run_status = detect_status(context.report_dir)
         run_metadata.update(
             {
-                "status": "completed_with_failures" if failed_count else "completed",
+                "status": run_status,
                 "final_report": str(final),
                 "report_path": str(final),
                 "error_log": str(error_log) if error_log else None,
@@ -406,6 +577,24 @@ class Engine:
         return set(AgentRegistry.load().names) | set(SkillRegistry.load().names)
 
     @staticmethod
+    def _classify_requirement(
+        intents: IntentRegistry,
+        requirement: str,
+        intent_override: Optional[str] = None,
+        skill: Optional[str] = None,
+    ) -> ClassificationResult:
+        """Apply the shared clarification gate to every graph-building path."""
+        if skill:
+            return ClassificationResult.explicit("SKILL", "explicit reusable skill selection: {0}".format(skill))
+        if intent_override:
+            definition = intents.get(intent_override)
+            return ClassificationResult.explicit(definition.name, "explicit --intent override")
+        result = intents.classify_result(requirement)
+        if result.needs_clarification:
+            raise ClarificationRequired(result)
+        return result
+
+    @staticmethod
     def _resolve_task_capabilities(
         graph: Dict[str, Any], agents: AgentRegistry, skills: SkillRegistry
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -440,6 +629,8 @@ class Engine:
         resolved_agents: Dict[str, Any],
         resolved_skills: Dict[str, Any],
         config: Dict[str, Any],
+        context_quality_warnings: Optional[List[str]] = None,
+        execution_context: Optional[RunExecutionContext] = None,
     ) -> None:
         """Review executable task outputs and revise them until pass or the configured limit."""
         review_config = config.get("review", {}) if isinstance(config.get("review"), dict) else {}
@@ -499,6 +690,8 @@ class Engine:
                     repo_summary(repo_info),
                     agent=reviewer_agent,
                     skill_definition=reviewer_skill,
+                    context_quality_warnings=context_quality_warnings or [],
+                    execution_context=execution_context,
                 )
                 review_recovery = self._recover(
                     worker_factory,
@@ -508,6 +701,7 @@ class Engine:
                     "{0}.review{1}".format(task_id, round_number),
                     reviewer_agent,
                     config,
+                    execution_context,
                 )
                 review_raw = review_recovery.worker_result.raw or ""
                 review_sip = (
@@ -541,6 +735,8 @@ class Engine:
                     issues,
                     resolved_agents[task_id],
                     resolved_skills[task_id],
+                    context_quality_warnings,
+                    execution_context,
                 )
                 revision_recovery = self._recover(
                     worker_factory,
@@ -550,6 +746,7 @@ class Engine:
                     "{0}.revise{1}".format(task_id, round_number),
                     resolved_agents[task_id],
                     config,
+                    execution_context,
                 )
                 current = self._task_result_from_recovery(task, revision_recovery)
                 current.review_rounds = round_number
@@ -572,6 +769,8 @@ class Engine:
         resolved_agents: Dict[str, Any],
         resolved_skills: Dict[str, Any],
         config: Dict[str, Any],
+        context_quality_warnings: List[str],
+        execution_context: Optional[RunExecutionContext] = None,
     ) -> TaskResult:
         """Apply quality policy and optional review before releasing dependencies."""
         review_config = config.get("review", {}) if isinstance(config.get("review"), dict) else {}
@@ -592,7 +791,7 @@ class Engine:
         excluded = task["expected_output"]["type"] in {"review", "memory_update"}
         if current.failed:
             current.review_status = "skipped"
-            current.lifecycle_status = "needs_human" if current.failure_type == "logic" else "failed"
+            current.lifecycle_status = "needs_human" if current.failure_type in _NEEDS_HUMAN_FAILURES else "failed"
             current.unresolved_issues = [current.error_message or "Task execution failed"]
         elif excluded or not enabled or not triggers:
             current.review_status = "skipped"
@@ -638,6 +837,8 @@ class Engine:
                     repo_summary(repo_info),
                     agent=reviewer_agent,
                     skill_definition=reviewer_skill,
+                    context_quality_warnings=context_quality_warnings,
+                    execution_context=execution_context,
                 )
                 review_recovery = self._recover(
                     worker_factory,
@@ -647,6 +848,7 @@ class Engine:
                     "{0}.review{1}".format(task["id"], round_number),
                     reviewer_agent,
                     config,
+                    execution_context,
                 )
                 review_raw = review_recovery.worker_result.raw or ""
                 review_sip = (
@@ -679,6 +881,8 @@ class Engine:
                     issues,
                     resolved_agents[task["id"]],
                     resolved_skills[task["id"]],
+                    context_quality_warnings,
+                    execution_context,
                 )
                 revision_recovery = self._recover(
                     worker_factory,
@@ -688,15 +892,23 @@ class Engine:
                     "{0}.revise{1}".format(task["id"], round_number),
                     resolved_agents[task["id"]],
                     config,
+                    execution_context,
                 )
                 current = self._task_result_from_recovery(task, revision_recovery)
                 current.review_rounds = round_number
                 current.review_status = "revising"
                 if current.failed:
-                    current.lifecycle_status = "needs_human" if current.failure_type == "logic" else "failed"
+                    current.lifecycle_status = "needs_human" if current.failure_type in _NEEDS_HUMAN_FAILURES else "failed"
                     break
 
         current.quality_score = self._confidence(current)
+        output_quality = QualityEvaluator(config.get("quality")).evaluate(task, current)
+        current.output_quality = output_quality.to_dict()
+        current.warnings = list(
+            dict.fromkeys([str(value) for value in current.sip.get("warnings", [])] + output_quality.warnings)
+        )
+        current.task_summary = build_task_summary(current)
+        context.write_yaml("artifacts/task_summaries/{0}.yaml".format(task["id"]), current.task_summary)
         current.context_patch = self._write_quality_evidence(context, task, current, triggers, threshold, enabled and bool(triggers))
         return current
 
@@ -737,17 +949,27 @@ class Engine:
         threshold: float,
         review_required: bool,
     ) -> str:
-        payload = {
-            "task_id": task["id"],
-            "confidence": result.quality_score,
-            "warnings": result.warnings,
-            "failure_type": result.failure_type,
-            "triggers": triggers,
-            "review_required": review_required,
-            "review_status": result.review_status,
-            "lifecycle_status": result.lifecycle_status,
-            "threshold": threshold,
-        }
+        payload = dict(result.output_quality)
+        payload.update(
+            {
+                "task_id": task["id"],
+                "failure_type": result.failure_type,
+                # These top-level fields preserve the P1 Revised quality-artifact
+                # interface while the evaluator owns quality/completeness fields.
+                "triggers": triggers,
+                "review_required": review_required,
+                "review_status": result.review_status,
+                "lifecycle_status": result.lifecycle_status,
+                "threshold": threshold,
+                "review": {
+                    "confidence": result.quality_score,
+                    "triggers": triggers,
+                    "required": review_required,
+                    "status": result.review_status,
+                    "threshold": threshold,
+                },
+            }
+        )
         context.write_text("artifacts/quality/{0}.json".format(task["id"]), json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         needs_patch = (
             result.quality_score < threshold
@@ -762,6 +984,7 @@ class Engine:
             "",
             "The upstream result requires independent verification before reuse.",
             "- Confidence: {0:.2f} (threshold {1:.2f})".format(result.quality_score, threshold),
+            "- Output quality: {0:.2f}".format(float(result.output_quality.get("quality", 0.0))),
             "- Lifecycle: {0}".format(result.lifecycle_status),
         ]
         if triggers:
@@ -783,6 +1006,7 @@ class Engine:
         artifact_id: str,
         agent: Any,
         config: Dict[str, Any],
+        execution_context: Optional[RunExecutionContext] = None,
     ) -> Any:
         execution = config.get("execution", {}) if isinstance(config.get("execution"), dict) else {}
         recovery = run_with_recovery(
@@ -794,6 +1018,8 @@ class Engine:
             FallbackPolicy.from_config(execution, agent),
             skill=task["skill"],
             timeout_seconds=config.get("timeout_seconds", 300),
+            apply_approved=bool(execution_context.apply_approved) if execution_context is not None else False,
+            execution_contract=execution_context.to_prompt_section() if execution_context is not None else "",
         )
         write_recovery_artifacts(context.artifacts_dir, artifact_id, recovery)
         return recovery
@@ -815,7 +1041,11 @@ class Engine:
             error_message=worker_result.error_message,
             model=recovery.model,
             retry_history=[attempt.to_dict() for attempt in recovery.attempts],
-            lifecycle_status="failed" if worker_result.failed else "completed",
+            lifecycle_status=(
+                "needs_human"
+                if (recovery.failure_type or worker_result.failure_type) in _NEEDS_HUMAN_FAILURES
+                else ("failed" if worker_result.failed else "completed")
+            ),
             failure_type=recovery.failure_type or worker_result.failure_type,
             warnings=[str(value) for value in sip.get("warnings", [])],
         )
@@ -875,6 +1105,8 @@ class Engine:
         issues: List[str],
         agent: Any,
         skill: Any,
+        context_quality_warnings: Optional[List[str]] = None,
+        execution_context: Optional[RunExecutionContext] = None,
     ) -> str:
         prompt = compile_task_prompt(
             task,
@@ -888,10 +1120,55 @@ class Engine:
             repo_summary(repo_info),
             agent=agent,
             skill_definition=skill,
+            context_quality_warnings=context_quality_warnings or [],
+            execution_context=execution_context,
         )
         return "{0}\n\n# Required Revision\nThe review did not pass. Address every issue below before returning the updated SIP output.\n{1}\n".format(
             prompt, "\n".join("- {0}".format(issue) for issue in issues)
         )
+
+    @staticmethod
+    def _collect_run_warnings(
+        graph: Dict[str, Any],
+        graph_quality: Any,
+        context_quality: ContextQualityReport,
+        classification: ClassificationResult,
+        results: Dict[str, TaskResult],
+        integration_warnings: List[str],
+    ) -> List[str]:
+        """Make every non-fatal control signal visible in the final report."""
+        metadata = graph.get("metadata", {}) if isinstance(graph.get("metadata"), dict) else {}
+        warnings: List[str] = [str(value) for value in metadata.get("warnings", [])]
+        warnings.extend("graph quality: {0}".format(value) for value in getattr(graph_quality, "warnings", []))
+        warnings.extend("context quality: {0}".format(value) for value in context_quality.warnings)
+        if classification.confidence < 0.6:
+            warnings.append("classification low confidence: {0:.2f}".format(classification.confidence))
+        warnings.extend(str(value) for value in integration_warnings)
+        for task_id, result in results.items():
+            warnings.extend("{0}: {1}".format(task_id, value) for value in result.warnings)
+            warnings.extend(
+                "{0}: {1}".format(task_id, value)
+                for value in result.output_quality.get("warnings", [])
+                if str(value).strip()
+            )
+            for attempt in result.retry_history:
+                if attempt.get("failed"):
+                    warnings.append(
+                        "{0}: retry warning ({1}): {2}".format(
+                            task_id,
+                            attempt.get("failure_type") or attempt.get("stage") or "unknown",
+                            attempt.get("error_message") or "worker/output failure",
+                        )
+                    )
+            if result.cache_action == "reuse" or result.lifecycle_status == "skipped":
+                warnings.append(
+                    "{0}: skipped task; reused verified cache{1}.".format(
+                        task_id, " from {0}".format(result.source_run_id) if result.source_run_id else ""
+                    )
+                )
+            if result.failed or result.lifecycle_status in {"failed", "needs_human", "logic_failed"}:
+                warnings.append("{0}: failed task: {1}".format(task_id, result.error_message or result.lifecycle_status))
+        return list(dict.fromkeys(warnings))
 
     @staticmethod
     def _write_task_outputs(
@@ -956,6 +1233,8 @@ class Engine:
                     "warnings": result.warnings,
                     "quality_score": result.quality_score,
                     "quality_reasons": result.quality_reasons,
+                    "output_quality": result.output_quality,
+                    "task_summary": result.task_summary,
                     "cache_action": result.cache_action,
                     "source_run_id": result.source_run_id,
                     "sip_type": result.sip.get("type"),

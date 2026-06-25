@@ -15,6 +15,7 @@ def build_final_report(
     artifacts: Iterable[Path],
     deliverables: Optional[Iterable[Path]] = None,
     error_log: Optional[Path] = None,
+    context_quality: Optional[Dict] = None,
 ) -> str:
     task_lines = []
     unresolved_lines = []
@@ -36,6 +37,8 @@ def build_final_report(
     artifact_lines = ["- {0}".format(path.name) for path in artifacts] or ["- None"]
     deliverable_lines = ["- {0}".format(path.name) for path in (deliverables or [])] or ["- None"]
     metadata = graph.get("metadata", {}) if isinstance(graph.get("metadata"), dict) else {}
+    classification = metadata.get("classification", {}) if isinstance(metadata.get("classification"), dict) else {}
+    context_quality = context_quality if isinstance(context_quality, dict) else {}
     errors = [
         (task_id, result)
         for task_id, result in results.items()
@@ -68,6 +71,18 @@ def build_final_report(
 {graph_source}
 
 Planner confidence: {planner_confidence}
+
+## Classification
+- Intent: {classification_intent}
+- Confidence: {classification_confidence}
+- Reason: {classification_reason}
+
+## Context Quality
+- Coverage: {context_coverage}
+- Complete: {context_complete}
+- Language confidence: {language_confidence}
+- Dependency confidence: {dependency_confidence}
+- Evidence: `artifacts/context_quality.json` and `artifacts/context_quality.md`
 
 ## Task Graph Overview
 {count} tasks; independent tasks were scheduled in parallel where worker capacity allowed.
@@ -110,6 +125,13 @@ Planner confidence: {planner_confidence}
         summary=graph["requirement"]["raw_summary"],
         graph_source=metadata.get("graph_source", "unknown"),
         planner_confidence=metadata.get("planner_confidence", 0.0),
+        classification_intent=classification.get("intent", metadata.get("intent", "unknown")),
+        classification_confidence=classification.get("confidence", "unknown"),
+        classification_reason=classification.get("reason", "No classification evidence was recorded."),
+        context_coverage=context_quality.get("coverage", "not recorded"),
+        context_complete=("yes" if context_quality.get("complete") is True else "no") if context_quality else "not recorded",
+        language_confidence=context_quality.get("language_confidence", "not recorded"),
+        dependency_confidence=context_quality.get("dependency_confidence", "not recorded"),
         count=len(graph["tasks"]),
         task_lines="\n".join(task_lines),
         unresolved_issues="\n".join(unresolved_lines) or "- None",

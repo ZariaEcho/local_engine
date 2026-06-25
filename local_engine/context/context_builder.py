@@ -6,6 +6,19 @@ from typing import Any, Dict, Iterable, List
 from local_engine.context.repo_scanner import RepoInfo
 
 
+_DEPENDENCY_MANIFESTS = {
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.py",
+    "package.json",
+    "pnpm-lock.yaml",
+    "uv.lock",
+    "go.mod",
+    "cargo.toml",
+    "pom.xml",
+}
+
+
 def build_context(repo_info: Any) -> str:
     """Render a bounded, useful ``PROJECT_CONTEXT.md`` document."""
     data = _as_dict(repo_info)
@@ -13,6 +26,10 @@ def build_context(repo_info: Any) -> str:
     directories = _lines(data.get("directories", []))
     modules = _lines(list_modules(repo_info))
     dependencies = _lines(data.get("dependencies", []))
+    files = _lines(data.get("files", []))
+    manifests = _lines(
+        filename for filename in data.get("files", []) if Path(filename).name.lower() in _DEPENDENCY_MANIFESTS
+    )
     return """# Project Summary
 
 ## Languages
@@ -26,7 +43,20 @@ def build_context(repo_info: Any) -> str:
 
 ## Dependencies
 {dependencies}
-""".format(languages=languages, directories=directories, modules=modules, dependencies=dependencies)
+
+## Dependency Manifests
+{manifests}
+
+## Repository Files
+{files}
+""".format(
+        languages=languages,
+        directories=directories,
+        modules=modules,
+        dependencies=dependencies,
+        manifests=manifests,
+        files=files,
+    )
 
 
 def write_project_context(repo_info: Any, project_state: Path) -> Path:

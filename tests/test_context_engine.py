@@ -117,7 +117,11 @@ def test_cli_scan_inspect_and_graph_commands(tmp_path):
     preview = runner.invoke(app, ["graph", "--project", str(project), "实现一个功能"])
     assert preview.exit_code == 0, preview.output
     assert "Task Graph Preview (BUILD)" in preview.output
-    assert "- backend [backend]" in preview.output
+    assert "project_type: algorithm_repository" in preview.output
+    assert "- generate_algorithm_files [generate_code]" in preview.output
+    assert "- test_algorithm_files [test_generation]" in preview.output
+    assert "backend" not in preview.output
+    assert "frontend" not in preview.output
 
 
 def test_cli_run_writes_audit_and_knowledge_gap_deliverables(tmp_path, monkeypatch):

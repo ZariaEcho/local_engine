@@ -31,7 +31,9 @@ def test_plan_run_preserves_malformed_output_and_completes_dependents(tmp_path, 
     engine = Engine()
     engine.initialize(project)
     mock = MockWorker({"scan": "A useful natural-language scan without SIP."})
-    outcome = engine.run(project, "Improve the app", mode="plan", workers=4, worker_factory=lambda: mock)
+    outcome = engine.run(
+        project, "Improve the app", mode="plan", workers=4, worker_factory=lambda: mock, intent_override="PLAN"
+    )
     report = outcome.report_dir
     assert (report / "task_graph.yaml").is_file()
     assert len(list((report / "prompts").glob("*.prompt.md"))) == 4
@@ -98,7 +100,7 @@ def test_run_accepts_markdown_input_file(tmp_path, monkeypatch):
     brief.write_text("# Improve the checkout\n\nKeep the interface accessible.", encoding="utf-8")
     engine = Engine()
     engine.initialize(project)
-    outcome = engine.run(project, "", input_file=brief, worker_factory=lambda: MockWorker())
+    outcome = engine.run(project, "", input_file=brief, worker_factory=lambda: MockWorker(), intent_override="PLAN")
     normalized = (outcome.report_dir / "normalized_requirement.yaml").read_text(encoding="utf-8")
     assert "source_type: file" in normalized
     assert "Improve the checkout" in normalized

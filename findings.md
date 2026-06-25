@@ -2,6 +2,18 @@
 
 ## Requirements
 
+- 2026-06-25 MVP real-run fixes:
+  - Detect algorithm repositories from project files/keywords and persist `artifacts/project_type.json`.
+  - Build BUILD graphs from intent, project type, and requirement; algorithm repositories must not receive generic backend/frontend/api/ui/database tasks unless explicitly requested.
+  - Use capability-oriented task/skill names for new graphs (`code_generation`, `test_generation`, implementation semantics) while keeping old aliases compatible.
+  - In apply mode, propagate approved write permission into every executable prompt through a run execution contract.
+  - Classify permission/clarification/tool requests distinctly from FORMAT errors and route approved permission requests to execution-contract retry.
+  - Always produce recoverable partial/failure/interrupted reports; `report --latest` should recover the latest run even if it is not completed.
+  - Improve progress visibility with task ID, elapsed time, attempt, worker, last output age, and a long-running warning after five minutes.
+- P1-Control adds classification confidence/clarification, graph semantic checks, direct dependency summaries, and non-blocking output-quality evaluation.
+- P1-5 adds a non-blocking Context Quality Gate: detect the relevant core paths, dependency/entry/test coverage, and size risk; persist artifacts and inject warnings into all task prompts.
+- P1-6 standardizes error evidence, makes warnings visible in the final report, expands Doctor diagnostics, and verifies the complete local run lifecycle.
+
 - Dynamically load agent YAML files from `agents/`.
 - Dynamically load reusable skill directories from `skills/`.
 - Add registry inspection CLI commands and direct `run --skill` support.
@@ -14,6 +26,31 @@
 - Reuse only verified task results using repository and watched-path fingerprints.
 
 ## Research Findings
+
+- The latest real-run failure mode is a semantic graph mismatch: algorithm repositories can be misrouted into a generic BUILD graph containing backend/frontend tasks.
+- Apply-mode worker prompts need an explicit write-permission contract because the external Claude worker can otherwise ask for permission even after the CLI approval flow.
+- Permission requests are meaningful worker-control signals and should not be collapsed into SIP/format parsing errors.
+- Report recovery must tolerate runs that end outside the normal completed path and should use the latest run index entry even when `final_report.md` is missing.
+- `intents/build.yaml` currently requires `build_backend`, `build_frontend`, and `build_test`; `task_templates/builtin.yaml` maps them to task IDs `backend`, `frontend`, and `test`, with the test task depending on both web-style implementation tasks.
+- `Engine.run` already accepts `apply_approved`, but the value is only checked immediately before applying collected patches; it is not injected into worker prompts.
+- `compile_task_prompt` is the central insertion point for an execution contract because main tasks, reviews, and revisions all call it.
+- `FailureType` currently only supports network/format/logic/timeout/unknown, and `classify_failure` checks unstructured output after SIP parsing, causing plain permission requests to become `format`.
+- Report recovery already exists in `runtime/reporting.py` and `_finalize_recoverable_run`, but this run will verify it still handles running records with blank report paths.
+- `RunProgress` currently displays only `task_id running` plus Rich elapsed time; scheduler events do not include attempt number, worker/model, or last output age.
+
+- `RepoInfo.files` is intentionally bounded to source/document formats and currently does not make dependency-manifest coverage explicit in `PROJECT_CONTEXT.md`; the new gate should inspect project-relative paths directly and add a manifest inventory to the context builder.
+- Prompt compilation is centralized in `compile_task_prompt`; adding an optional context-warning argument there covers primary task, review, and revision prompts without changing worker contracts.
+- A run has one `RunContext` and already owns `artifacts/`, while retry code already writes per-task JSON under `artifacts/errors/`; it needs the requested normalized top-level error fields rather than a second persistence system.
+- Final-report warnings are assembled in `Engine.run`, so classification, graph, context, task quality, retry, skipped, and failed signals should be normalized into that one list before rendering.
+- `inspect` uses `Engine.scan` and `doctor` currently only checks runtime home/config/Rich/Claude. Both have clear integration points for the requested diagnostics.
+
+- Current intent selection returns only a string and silently defaults to PLAN; the Engine has no pre-graph clarification boundary.
+- Current prompt compilation includes raw direct dependency evidence and review context patches, but does not persist or inject a concise task-summary artifact.
+- Existing `artifacts/quality/<task_id>.json` is review-trigger evidence, so P1-Control must merge rather than overwrite the review-compatible fields.
+- Task-cache verification currently relies on successful lifecycle only; it must additionally require complete, sufficiently confident output quality.
+- Classification evidence now lives under `intents/` (rather than `planner/`) so the Registry can return typed results without a package import cycle.
+- The semantic graph gate compares generated task templates with intent-required templates and their declared dependencies; it intentionally leaves duplicate work as a warning rather than blocking execution.
+- Output quality remains separate from the pre-existing review trigger score: it is persisted in the unified quality artifact and gates cache reuse without blocking the current run.
 
 - `Engine.run` builds an intent-specific graph, compiles prompts, delegates dependency scheduling to `ParallelScheduler`, then writes final artifacts and reports.
 - Graph task `skill` currently doubles as the hard-coded role identifier. `graph_validator.ALLOWED_SKILLS`, `prompt_compiler.ROLE_BY_SKILL`, and `templates/skills/` encode the fixed catalog.
@@ -37,6 +74,12 @@
 - The completed runtime preserves legacy execution statuses while publishing the richer lifecycle, quality, failure, and cache provenance alongside them.
 
 ## Technical Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Low-confidence non-interactive calls fail with candidates | Prevents a silent wrong graph; callers can retry with `--intent`. |
+| Only direct dependency summaries are injected | Preserves DAG causality and avoids nondeterministic context from parallel siblings. |
+| Graph errors block; output-quality issues warn | Matches the P1-Control control boundary without discarding useful worker output. |
 
 | Decision | Rationale |
 |----------|-----------|

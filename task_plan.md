@@ -2,7 +2,7 @@
 
 ## Goal
 
-Upgrade Local Engine into a closed-loop Agent Runtime with a durable run index, declarative intent/task registries, typed recovery, conditional review, feedback patches, and verified cross-run task reuse.
+Upgrade Local Engine into a closed-loop Agent Runtime with a durable run index, declarative intent/task registries, typed recovery, conditional review, feedback patches, verified cross-run task reuse, and a final Context Quality / Stability control pass.
 
 ## Current Phase
 
@@ -80,6 +80,90 @@ Complete
 - [x] Run full regression and CLI smoke verification.
 - **Status:** complete
 
+### Phase 11: Control contracts and classification gate
+
+- [x] Add structured classification results, clarification handling, explicit overrides, and persisted classification evidence.
+- [x] Extend the SIP contract for findings, recommendations, and decisions.
+- **Status:** complete
+
+### Phase 12: Graph quality gate
+
+- [x] Validate semantic template coverage and declared dependency quality after structural graph validation.
+- [x] Persist graph-quality evidence and fail invalid graphs before scheduling.
+- **Status:** complete
+
+### Phase 13: Task context propagation and output quality
+
+- [x] Persist direct-dependency task summaries and inject them into compiled prompts.
+- [x] Evaluate final task outputs, unify quality artifacts, and tighten cache verification.
+- **Status:** complete
+
+### Phase 14: Regression coverage and documentation
+
+- [x] Add P1-Control acceptance coverage and update existing worker fixtures.
+- [x] Update CLI/config/SIP documentation, run checks, and record verification.
+- **Status:** complete
+
+### Phase 15: Discover context and stability integration points
+
+- [x] Inspect scanner, context builder, prompt compiler, report paths, doctor, and error handling.
+- [x] Establish the current regression baseline and retain compatibility constraints.
+- **Status:** complete
+
+### Phase 16: Context Quality Gate
+
+- [x] Implement typed context-quality analysis and JSON/Markdown artifacts.
+- [x] Inject non-blocking context warnings into every task prompt and show them in inspect/report output.
+- [x] Add focused coverage for core paths, dependencies, tests, size risk, and completion thresholds.
+- **Status:** complete
+
+### Phase 17: Stability hardening
+
+- [x] Standardize structured error artifacts and surface all run warnings in the final report.
+- [x] Extend Doctor checks and add a deterministic end-to-end smoke test.
+- **Status:** complete
+
+### Phase 18: Documentation and final verification
+
+- [x] Update MVP lifecycle, run-directory, warning, doctor, and troubleshooting documentation.
+- [x] Run `PYTHONPATH=. pytest -q`, CLI Doctor, and a local demo run; resolve regressions.
+- **Status:** complete
+
+### Phase 19: MVP real-run fix discovery
+
+- [x] Inspect project type, graph builder, prompt compiler, scheduler, failure classifier, reports, and progress display.
+- [x] Map the attached MVP fix plan to existing runtime extension points.
+- [x] Record compatibility constraints and current test coverage.
+- **Status:** complete
+
+### Phase 20: Project-aware BUILD graph
+
+- [x] Add deterministic project type detection and persist `artifacts/project_type.json`.
+- [x] Feed project type into graph generation and block generic web-app tasks for algorithm repositories.
+- [x] Update skill/task naming so new BUILD graphs use implementation/test-generation semantics rather than backend/frontend roles.
+- **Status:** complete
+
+### Phase 21: Execution contract and failure recovery
+
+- [x] Add run execution context and inject apply-mode write approval into executable prompts.
+- [x] Classify permission, clarification, and tool requests separately from format errors.
+- [x] Retry approved permission requests with the execution contract and route unapproved/clarification requests to human attention.
+- **Status:** complete
+
+### Phase 22: Report recovery and progress visibility
+
+- [x] Ensure all exits can produce partial/failure/interrupted reports and run-index states.
+- [x] Make `report --latest` recover partial reports from latest runs, not just completed runs.
+- [x] Add task ID, elapsed time, attempt, worker, last output age, and long-running warnings to progress output.
+- **Status:** complete
+
+### Phase 23: Acceptance verification
+
+- [x] Add focused regression tests for project detection, graph compatibility, execution contract, permission classification, report recovery, and progress output.
+- [x] Run focused tests and the full regression suite.
+- [x] Smoke-check the requested graph flow against `/Users/echo/Desktop/code/algorithms/graphs`.
+- **Status:** complete
+
 ## Decisions Made
 
 | Decision | Rationale |
@@ -102,3 +186,5 @@ Complete
 | Legacy YAML timestamps deserialize as `datetime` and are not directly JSON serializable | 1 | Normalize imported timestamp values to strings before writing the JSON index. |
 | Quality test inspected a review prompt that reused the task ID and overwrote the worker's debug map | 1 | Assert against the canonical persisted execution prompt instead. |
 | Legacy SIP contract tests required an exact key set | 1 | Update the contract expectation for the approved additive `warnings` and `failure_type` fields. |
+| `pytest` command is unavailable on PATH | 1 | Check available Python interpreters and invoke pytest as a module where installed. |
+| P1-Control classification contract imported through `planner.__init__` | 1 | Move shared result/error types under `intents/` to remove the Registry ↔ Planner import cycle. |

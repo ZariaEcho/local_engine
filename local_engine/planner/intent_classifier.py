@@ -1,6 +1,7 @@
 """Small deterministic classifier backed by declarative intent YAML."""
 
 from local_engine.intents.registry import IntentRegistry
+from local_engine.intents.classification import ClassificationResult
 
 
 AUDIT = "AUDIT"
@@ -22,7 +23,15 @@ class IntentClassifier:
     def classify(self, user_input: str) -> str:
         return self.registry.classify(user_input)
 
+    def classify_result(self, user_input: str) -> ClassificationResult:
+        return self.registry.classify_result(user_input)
+
 
 def classify(user_input: str) -> str:
     """Convenience API for ``IntentClassifier().classify(user_input)``."""
     return IntentClassifier().classify(user_input)
+
+
+def classify_result(user_input: str) -> ClassificationResult:
+    """Convenience API returning structured classification evidence."""
+    return IntentClassifier().classify_result(user_input)

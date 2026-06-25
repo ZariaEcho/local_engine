@@ -2,13 +2,15 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import time
 from typing import Any, Callable, Dict, Optional
 
 import yaml
 
 from local_engine.graph.dependency_resolver import ready_tasks
-from local_engine.kernel.schemas import TaskResult, WorkerResult, make_error_sip
+from local_engine.kernel.schemas import FailureType, TaskResult, WorkerResult, make_error_sip
 from local_engine.runtime.fallback import FallbackPolicy
+from local_engine.runtime.errors import write_error_artifact
 from local_engine.runtime.retry import RetryPolicy, invoke_worker, run_with_recovery, write_recovery_artifacts
 from local_engine.kernel.sip_parser import parse_sip
 from local_engine.scheduler.execution_state import ExecutionState
@@ -45,7 +47,20 @@ class ParallelScheduler:
             state.scheduled.extend(task["id"] for task in ready)
             for task in ready:
                 state.statuses[task["id"]] = "running"
-                self._emit(status_callback, "task_started", task)
+                agent = agent_resolver(task) if agent_resolver is not None else None
+                retry_policy = RetryPolicy.from_config(execution_config or {}, agent)
+                self._emit(
+                    status_callback,
+                    "task_started",
+                    task,
+                    extra={
+                        "task_type": task.get("task_type", ""),
+                        "attempt": 1,
+                        "max_attempts": max(1, retry_policy.max_retries + 1),
+                        "worker": getattr(getattr(agent, "model", None), "primary", "claude"),
+                        "started_at": time.time(),
+                    },
+                )
             with ThreadPoolExecutor(max_workers=min(self.workers, len(ready))) as executor:
                 futures = {
                     executor.submit(
@@ -74,6 +89,14 @@ class ParallelScheduler:
                         sip = make_error_sip(task["skill"], task["id"], raw)
                         state.results[task["id"]] = TaskResult(
                             task["id"], raw, sip, failed=True, status="failed_but_continued", error_message=raw
+                        )
+                        write_error_artifact(
+                            artifact_dir or (agent_outputs_dir.parent / "artifacts"),
+                            task["id"],
+                            "quality",
+                            type(exc).__name__,
+                            raw,
+                            True,
                         )
                         self._persist(agent_outputs_dir, task, state.results[task["id"]])
                     state.statuses[task["id"]] = state.results[task["id"]].status
@@ -117,6 +140,8 @@ class ParallelScheduler:
             fallback_policy,
             skill=task["skill"],
             timeout_seconds=execution_config.get("timeout_seconds"),
+            apply_approved=bool(execution_config.get("apply_approved", False)),
+            execution_contract=str(execution_config.get("execution_contract", "")),
         )
         for attempt in recovery.attempts:
             if attempt.failed:
@@ -137,7 +162,11 @@ class ParallelScheduler:
             error_message=worker_result.error_message,
             model=recovery.model,
             retry_history=[attempt.to_dict() for attempt in recovery.attempts],
-            lifecycle_status="needs_human" if recovery.failure_type == "logic" else ("failed" if worker_result.failed else "completed"),
+            lifecycle_status=(
+                "needs_human"
+                if recovery.failure_type in _NEEDS_HUMAN_FAILURES
+                else ("failed" if worker_result.failed else "completed")
+            ),
             failure_type=recovery.failure_type or worker_result.failure_type,
             warnings=[str(value) for value in sip.get("warnings", [])],
         )
@@ -190,6 +219,7 @@ class ParallelScheduler:
         event: str,
         task: Dict[str, Any],
         result: Optional[TaskResult] = None,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         if callback is None:
             return
@@ -210,6 +240,8 @@ class ParallelScheduler:
             )
             if result.failed:
                 payload["error_output"] = result.raw
+        if extra:
+            payload.update(extra)
         try:
             callback(event, payload)
         except Exception:
@@ -227,17 +259,31 @@ class ParallelScheduler:
                     "task_id": task["id"],
                     "title": task.get("title", task["id"]),
                     "stage": getattr(attempt, "stage", "attempt"),
+                    "attempt": getattr(attempt, "number", 1),
                     "model": getattr(attempt, "model", ""),
+                    "worker": getattr(attempt, "model", ""),
                     "error_message": getattr(attempt, "error_message", ""),
                     "error_output": getattr(attempt, "raw", ""),
                     "failure_type": getattr(attempt, "failure_type", ""),
                     "action": getattr(attempt, "action", ""),
-                    "lifecycle_status": (
-                        "format_retrying"
-                        if getattr(attempt, "failure_type", "") == "format"
-                        else ("logic_failed" if getattr(attempt, "failure_type", "") == "logic" else "running")
-                    ),
+                    "lifecycle_status": _attempt_lifecycle(getattr(attempt, "failure_type", "")),
                 },
             )
         except Exception:
             return
+
+
+_NEEDS_HUMAN_FAILURES = {
+    FailureType.LOGIC.value,
+    FailureType.PERMISSION_REQUEST.value,
+    FailureType.CLARIFICATION_REQUEST.value,
+    FailureType.TOOL_REQUEST.value,
+}
+
+
+def _attempt_lifecycle(failure_type: str) -> str:
+    if failure_type == FailureType.FORMAT.value:
+        return "format_retrying"
+    if failure_type in _NEEDS_HUMAN_FAILURES:
+        return "needs_human"
+    return "running"

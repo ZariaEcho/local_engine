@@ -1,6 +1,6 @@
 """Compile auditable prompts for arbitrary validated graph tasks."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 import yaml
 
@@ -25,6 +25,16 @@ def _skill_guidance(skill: Any, variables: Dict[str, Any]) -> str:
     return SkillRenderer().render(skill, variables) or "Use disciplined reasoning, state assumptions, and produce only the requested output."
 
 
+def context_quality_warnings_section(warnings: Iterable[str]) -> str:
+    """Render non-blocking context limits in a form every worker can act on."""
+    values = list(dict.fromkeys(str(warning) for warning in warnings if str(warning).strip()))
+    if not values:
+        return "# Context Quality Warnings\nNo context quality warnings were detected."
+    return "# Context Quality Warnings\n\n{0}\n\nWhen making conclusions, explicitly mark assumptions and avoid overclaiming.".format(
+        "\n".join("- {0}".format(warning) for warning in values)
+    )
+
+
 def compile_task_prompt(
     task: Dict[str, Any],
     normalized_requirement: Dict[str, Any],
@@ -37,6 +47,8 @@ def compile_task_prompt(
     repository_summary: str = "",
     agent: Any = None,
     skill_definition: Any = None,
+    context_quality_warnings: Optional[Iterable[str]] = None,
+    execution_context: Any = None,
 ) -> str:
     """Render the SIP contract with graph, dependency, and task-specific context."""
     warning = any(
@@ -70,14 +82,28 @@ def compile_task_prompt(
         "# Role\n" + _role(agent),
         "# Skill Guidance\n" + _skill_guidance(skill_definition, skill_variables),
         "# Task\n{0} (`{1}`)".format(task["title"], task["id"]),
+        "# Execution Contract\n" + _execution_contract(mode, execution_context),
         "# User Requirement\n" + normalized_requirement["user_goal"],
         "# Normalized Requirement\n" + _yaml(normalized_requirement),
         "# Graph Metadata\n" + _yaml(graph_metadata or {}),
         "# Repository Summary\n" + (repository_summary or "No repository summary was recorded."),
         "# Project Context\n" + (project_context or "No project context was recorded."),
+        context_quality_warnings_section(context_quality_warnings or []),
         "# Project Memory\n" + (project_memory or "No project memory was recorded."),
         "# Engine Memory\n" + (engine_memory or "No engine memory was recorded."),
         "# Dependency Outputs\n" + dependencies,
+        "# Direct Dependency Summaries\n"
+        + (
+            _yaml(
+                {
+                    task_id: getattr(result, "task_summary", {})
+                    for task_id, result in dependency_outputs.items()
+                    if getattr(result, "task_summary", {})
+                }
+            )
+            if any(getattr(result, "task_summary", {}) for result in dependency_outputs.values())
+            else "No direct dependency summaries."
+        ),
         "# Upstream Quality Compensation\n" + ("\n\n".join(context_patches) if context_patches else "No upstream context patches."),
         "# Task-specific Constraints\n" + _yaml(constraints),
         "# Constraints\n- Work only within the supplied project context.\n- Mode: {0}. In plan mode, propose changes but do not assume patches will be applied.\n- Do not claim success without noting unknowns and risks.".format(mode),
@@ -85,6 +111,17 @@ def compile_task_prompt(
         "# Expected Output\n" + _yaml(task["expected_output"]),
         "# Eval Checklist\n- Preserve safety boundaries\n- State assumptions and risks\n- Produce the expected artifact",
         "# Dependency Warning\n" + ("WARNING: one or more upstream outputs were malformed or failed; use their raw content cautiously." if warning else "No upstream output warnings."),
-        "# SIP Output Contract\nIMPORTANT OUTPUT CONTRACT:\nPlease return one SIP object if possible.\nPrefer YAML.\nDo not include explanations before or after the SIP object.\nDo not wrap the SIP object in Markdown fences if you can avoid it.\n\nRequired fields:\ntype\nskill\ntask_id\nconfidence\nassumptions\nunknowns\nrisks\nwarnings\ndependencies\nartifacts\nbody\n\nOptional failure field:\nfailure_type\n\nIf you cannot complete the task, still return a valid SIP object with:\ntype: error\n\nNote:\nIf you do not follow this format, local_engine will not crash.\nIt will retry with a strict format contract, preserve useful text, and continue the workflow.",
+        "# SIP Output Contract\nIMPORTANT OUTPUT CONTRACT:\nPlease return one SIP object if possible.\nPrefer YAML.\nDo not include explanations before or after the SIP object.\nDo not wrap the SIP object in Markdown fences if you can avoid it.\n\nRequired fields:\ntype\nskill\ntask_id\nconfidence\nassumptions\nunknowns\nrisks\nwarnings\ndependencies\nartifacts\nfindings\nrecommendations\ndecisions\nbody\n\nOptional failure field:\nfailure_type\n\nIf you cannot complete the task, still return a valid SIP object with:\ntype: error\n\nNote:\nIf you do not follow this format, local_engine will not crash.\nIt will retry with a strict format contract, preserve useful text, and continue the workflow.",
     ]
     return "\n\n".join(sections) + "\n"
+
+
+def _execution_contract(mode: str, execution_context: Any = None) -> str:
+    if execution_context is not None and hasattr(execution_context, "to_prompt_section"):
+        section = str(execution_context.to_prompt_section()).strip()
+        if section.startswith("## Execution Contract"):
+            return section[len("## Execution Contract") :].strip()
+        return section
+    return "Mode: {0}\nUser write approval: not granted\nDo not write files unless an execution context grants apply-mode writes.".format(
+        mode
+    )

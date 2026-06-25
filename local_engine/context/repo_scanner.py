@@ -16,7 +16,20 @@ _LANGUAGES = {
     ".rs": "Rust",
     ".java": "Java",
 }
-_SUPPORTED_SUFFIXES = set(_LANGUAGES) | {".md", ".yaml", ".yml", ".json"}
+_SUPPORTED_SUFFIXES = set(_LANGUAGES) | {".md", ".yaml", ".yml", ".json", ".toml"}
+_CONTEXT_FILENAMES = {
+    "requirements.txt",
+    "setup.py",
+    "package.json",
+    "pnpm-lock.yaml",
+    "uv.lock",
+    "app.json",
+    "project.config.json",
+    "go.mod",
+    "cargo.lock",
+    "cargo.toml",
+    "pom.xml",
+}
 _IGNORED_PARTS = {".git", ".local_engine", ".venv", "venv", "node_modules", "__pycache__", "target", "build", "dist"}
 
 
@@ -56,7 +69,7 @@ def scan_project(project_path: Path) -> RepoInfo:
                 directories.add(relative.as_posix())
             continue
         suffix = path.suffix.lower()
-        if suffix in _SUPPORTED_SUFFIXES:
+        if suffix in _SUPPORTED_SUFFIXES or relative.name.lower() in _CONTEXT_FILENAMES:
             files.append(relative.as_posix())
             if suffix in _LANGUAGES:
                 languages.add(_LANGUAGES[suffix])

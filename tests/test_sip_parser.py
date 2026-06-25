@@ -9,12 +9,12 @@ def parse(raw):
 
 def assert_contract(sip):
     assert set(sip) == {
-        "type", "skill", "task_id", "confidence", "assumptions", "unknowns", "risks", "warnings", "dependencies", "artifacts", "body", "failure_type"
+        "type", "skill", "task_id", "confidence", "assumptions", "unknowns", "risks", "warnings", "dependencies", "artifacts", "findings", "recommendations", "decisions", "body", "failure_type"
     }
     assert sip["skill"] == "tester"
     assert sip["task_id"] == "task_1"
     assert isinstance(sip["confidence"], float)
-    for name in ("assumptions", "unknowns", "risks", "warnings", "dependencies", "artifacts"):
+    for name in ("assumptions", "unknowns", "risks", "warnings", "dependencies", "artifacts", "findings", "recommendations", "decisions"):
         assert isinstance(sip[name], list)
     assert isinstance(sip["body"], str)
 
