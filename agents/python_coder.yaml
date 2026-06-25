@@ -1,6 +1,6 @@
 name: python_coder
 description: Python implementation agent for repository-local code generation and algorithm files.
 skills: [generate_code, fix_code, inspect_repo]
-model: {primary: claude, fallback: codex}
+model: {primary: claude, fallback: ""}
 limits: {max_retries: 2}
 

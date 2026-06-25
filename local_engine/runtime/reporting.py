@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 from local_engine.artifacts.recover_report import detect_status, recover_report
 from local_engine.runtime.run_index import RunIndex
+from local_engine.runtime.run_store import iter_run_dirs, resolve_run_dir
 
 
 def write_run_metadata(global_run_dir: Path, payload: Dict[str, Any]) -> Path:
@@ -19,13 +20,12 @@ def resolve_report(
 ) -> Optional[Dict[str, Any]]:
     """Locate or recover a final report, using global metadata when no project is supplied."""
     if project_root is not None:
-        reports_dir = project_root.expanduser().resolve() / ".local_engine" / "task_reports"
+        project_state = project_root.expanduser().resolve() / ".local_engine"
         if run_id:
-            candidates = [reports_dir / run_id]
+            resolved = resolve_run_dir(project_state, run_id=run_id)
+            candidates = [resolved] if resolved is not None else []
         elif latest:
-            candidates = sorted(
-                (path for path in reports_dir.glob("*") if path.is_dir()), key=lambda path: path.stat().st_mtime, reverse=True
-            )
+            candidates = list(iter_run_dirs(project_state))
         else:
             return None
         for report_dir in candidates:

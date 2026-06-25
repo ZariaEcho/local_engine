@@ -68,6 +68,9 @@ class TaskResult:
     source_run_id: str = ""
     task_summary: Dict[str, List[str]] = None
     output_quality: Dict[str, Any] = None
+    loop_rounds: int = 0
+    loop_status: str = "skipped"
+    loop_history: List[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
         if self.retry_history is None:
@@ -82,6 +85,8 @@ class TaskResult:
             self.task_summary = {}
         if self.output_quality is None:
             self.output_quality = {}
+        if self.loop_history is None:
+            self.loop_history = []
         if self.lifecycle_status == "pending":
             self.lifecycle_status = "failed" if self.failed else "completed"
 

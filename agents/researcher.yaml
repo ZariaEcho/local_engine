@@ -1,5 +1,5 @@
 name: researcher
 description: Research agent for evidence gathering and scoped analysis.
 skills: [researcher, inspect_repo]
-model: {primary: claude, fallback: codex}
+model: {primary: claude, fallback: ""}
 limits: {max_retries: 2}

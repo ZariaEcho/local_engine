@@ -164,6 +164,42 @@ Complete
 - [x] Smoke-check the requested graph flow against `/Users/echo/Desktop/code/algorithms/graphs`.
 - **Status:** complete
 
+### Phase 24: P0 architecture and contract baseline
+
+- [x] Add architecture, runtime contract, and refactor baseline docs.
+- [x] Preserve a smoke baseline for `run` and `report --latest`.
+- [x] Keep P0 free of large runtime moves.
+- **Status:** complete
+
+### Phase 25: P1 Runtime kernel refactor
+
+- [x] Introduce Runtime input/output, executor request/result, state, store, events, scheduler, recovery, and quality-gate modules.
+- [x] Move new run output to `.local_engine/runs/<run_id>/` while preserving legacy `task_reports` reads.
+- [x] Remove Codex from default configuration and make executor routing explicit.
+- [x] Add top-level `status` and `resume` lifecycle commands.
+- **Status:** complete
+
+### Phase 26: P2 Hook and Loop control
+
+- [x] Add built-in runtime hook events and persist hook evidence.
+- [x] Add quality/review-driven loop state with max-round control.
+- [x] Surface hook and loop state in `state.json` and final reports.
+- **Status:** complete
+
+### Phase 27: P3 version, Git, and telemetry preparation
+
+- [x] Add package version module, `local-engine --version`, and changelog.
+- [x] Add local-only telemetry schema and default-disabled writer.
+- [x] Document branch/tag/version rules.
+- **Status:** complete
+
+### Phase 28: Refactor verification
+
+- [x] Add and update regression tests for P0-P3 acceptance criteria.
+- [x] Run the full test suite and smoke checks.
+- [x] Record final verification.
+- **Status:** complete
+
 ## Decisions Made
 
 | Decision | Rationale |

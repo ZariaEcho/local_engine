@@ -1,8 +1,8 @@
 # local_engine
 
-`local_engine` is a local repository-aware, closed-loop Agent Runtime. It composes declarative intents, task templates, skills, and agents; classifies failures; gates quality before releasing downstream work; and reuses only verified results whose repository inputs remain valid.
+`local_engine` is a local repository-aware task-graph Runtime. It composes declarative intents, task templates, skills, and agents; classifies failures; gates quality before releasing downstream work; and reuses only verified results whose repository inputs remain valid.
 
-The primary worker is the local `claude` CLI. Agents may declare another configured CLI model as a bounded fallback; there is no in-process model adapter.
+The default executor is the local `claude` CLI. Codex or any other executor must be configured explicitly; it is not a default fallback.
 
 ## Install
 
@@ -36,6 +36,7 @@ local-engine inspect --project ./demo_project
 local-engine graph --project ./demo_project "审计这个项目"
 local-engine graph --project ./demo_project --intent AUDIT "分析项目结构和问题"
 local-engine doctor
+local-engine --version
 ```
 
 `scan` writes `.local_engine/cache/repo_map.json` and `.local_engine/PROJECT_CONTEXT.md`. `graph` previews the deterministic graph for intents such as `AUDIT`, `PLAN`, `LEARN`, `BUILD`, `TEST`, `DOCUMENT`, `REFACTOR`, and `RESEARCH`. Classification emits intent, confidence, reason, and ranked candidates. At confidence below `0.6`, interactive CLI sessions ask the user to choose; non-interactive invocations exit with candidates and require `--intent <NAME>` on retry.
@@ -90,12 +91,18 @@ local-engine run --project ./demo_project "Implement the requested feature" --wo
 
 Every task is shown in a Rich progress/status stream. The final terminal summary always includes the `run_id`, `report_dir`, `final_report`, and each task status. A failed Claude invocation completes the rest of the runnable graph, writes failure evidence, and makes `run` exit non-zero after the summary.
 
-Recovery is selected by failure type: NETWORK reuses the original prompt, FORMAT adds a strict SIP contract, TIMEOUT compacts context and extends the timeout, LOGIC stops for human intervention, and UNKNOWN receives at most one conservative retry. NETWORK/TIMEOUT may use the configured fallback model after their retry budget.
+Recovery is selected by failure type: NETWORK reuses the original prompt, FORMAT adds a strict SIP contract, TIMEOUT compacts context and extends the timeout, LOGIC stops for human intervention, and UNKNOWN receives at most one conservative retry. NETWORK/TIMEOUT may use an explicitly configured fallback executor after their retry budget.
 
 ```yaml
+executors:
+  claude:
+    command: [claude]
+    enabled: true
 execution:
   max_retries: 2
-  fallback_model: codex
+  default_executor: claude
+  fallback_executor:
+  fallback_model:
   fallback_prompt: true
   continue_on_failure: true
   timeout_multiplier: 1.5
@@ -111,14 +118,26 @@ quality:
   min_body_characters: 80
   max_body_characters: 12000
   low_confidence_threshold: 0.5
+hooks:
+  enabled: true
+loop:
+  enabled: false
+  max_rounds: 2
+telemetry:
+  enabled: false
+  mode: local_only
 ```
 
 Review runs only when explicitly required, confidence is below the threshold, risk type/tags match, the output changes code, or SIP warnings are present. Review and revision finish before dependents run. Low-quality results produce a context patch that asks downstream tasks to revalidate affected conclusions. Independently, the output-quality evaluator requires non-empty SIP `findings` and `recommendations`, flags anomalous body length and confidence below `0.5`, and records warnings without discarding the result.
+
+Built-in hook events are recorded under `artifacts/hooks.jsonl`; they are audit/control events, not arbitrary shell hooks. When `loop.enabled` is true, review-failed tasks can enter the quality loop up to `loop.max_rounds`, and loop state is written to `state.json` plus the final report.
 
 Open the latest completed report from any initialized project without remembering its path:
 
 ```bash
 local-engine report --latest
+local-engine status --project ./demo_project
+local-engine resume --project ./demo_project
 local-engine runs list
 local-engine runs latest
 local-engine runs show 2026-06-23-001
@@ -133,11 +152,12 @@ local-engine run --project ./demo_project "Implement the requested feature" --mo
 
 ## Run output
 
-Each run is stored at `<project>/.local_engine/task_reports/<run_id>/`:
+Each new run is stored at `<project>/.local_engine/runs/<run_id>/`:
 
 ```text
 raw_input.md
 normalized_requirement.yaml
+state.json
 internal/classification.yaml
 repo_context.json
 task_graph.yaml
@@ -164,6 +184,7 @@ artifacts/graph_quality.json
 artifacts/context_quality.json
 artifacts/context_quality.md
 artifacts/context_patches/<task_id>.md # when compensation is required
+artifacts/hooks.jsonl                  # built-in Runtime hook events
 artifacts/errors/<task_id>.json        # classified failure evidence
 artifacts/errors/<task_id>.log         # present for every worker failure
 artifacts/retries/<task_id>.json       # recovery attempt trace
@@ -195,7 +216,7 @@ local-engine runs show 2026-06-23-001
 local-engine report --latest
 ```
 
-Project-local reports remain under `.local_engine/task_reports/<run_id>/`.
+Project-local reports are written under `.local_engine/runs/<run_id>/`. Legacy `.local_engine/task_reports/<run_id>/` directories remain readable for recovery.
 
 ## Reading Warnings
 
@@ -231,6 +252,8 @@ User Input → Classification Gate → Repository Scanner → Context Builder
 Durable curated artifacts are also stored in `<project>/.local_engine/artifacts/` under `audit/`, `plan/`, `review/`, `test/`, and `docs/`. For example, an audit run produces `deliverables/AUDIT_REPORT.md` in its run report and `.local_engine/artifacts/audit/AUDIT_REPORT.md` in project-local storage.
 
 Global runtime state lives under `~/.local_engine/` (override with `LOCAL_ENGINE_HOME`). `runs/index.json`, `runs/latest.json`, and `runs/<run_id>.json` form the cross-project run index. Run IDs use UTC `YYYY-MM-DD-NNN` format; legacy `runs/<old_id>/run_metadata.yaml` records are imported on read.
+
+Local telemetry is default-disabled. If explicitly enabled, sanitized events are written only to `.local_engine/telemetry/events.jsonl`; raw requirements, source code, prompts, model output, user paths, API keys, and environment variables are not collected.
 
 Project-local `.local_engine/cache/` contains `repo_hash.json`, `task_cache.json`, and `verified_tasks.json`. Exact repository matches reuse verified tasks. When the repository changes, a task is reused only if its Skill declares watched paths, those paths are unchanged, every direct dependency was also reused, and the stored output was complete with confidence at least `0.5`.
 

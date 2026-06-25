@@ -29,7 +29,7 @@ def test_cli_smoke_run_creates_the_complete_run_layout(tmp_path, monkeypatch):
     result = CliRunner().invoke(app, ["run", "--project", str(project), "审计这个项目"])
 
     assert result.exit_code == 0, result.output
-    report = next((project / ".local_engine" / "task_reports").iterdir())
+    report = next((project / ".local_engine" / "runs").iterdir())
     for relative_path in (
         "raw_input.md",
         "normalized_requirement.yaml",

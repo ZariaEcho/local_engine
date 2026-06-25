@@ -124,7 +124,7 @@ def test_engine_persists_and_indexes_blocked_graph_quality_failure(tmp_path, mon
 
     record = RunIndex().latest()
     assert record["status"] == "failed"
-    report = project / ".local_engine" / "task_reports" / record["run_id"]
+    report = project / ".local_engine" / "runs" / record["run_id"]
     quality = json.loads((report / "artifacts" / "graph_quality.json").read_text(encoding="utf-8"))
     assert quality["passed"] is False
     assert "missing declared dependencies" in (report / "internal" / "graph_quality.md").read_text(encoding="utf-8")

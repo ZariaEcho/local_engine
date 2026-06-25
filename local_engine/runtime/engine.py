@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import subprocess
 import re
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
@@ -34,12 +35,17 @@ from local_engine.memory.memory_writer import write_memory_update
 from local_engine.runtime.config import ensure_engine_home, load_engine_config, load_preferences, load_yaml
 from local_engine.runtime.errors import write_error_artifact
 from local_engine.runtime.execution_context import RunExecutionContext
+from local_engine.runtime.events import RuntimeEventRecorder
 from local_engine.runtime.fallback import FallbackPolicy
 from local_engine.runtime.reporting import write_run_metadata
 from local_engine.runtime.retry import RetryPolicy, invoke_worker, run_with_recovery, write_recovery_artifacts
 from local_engine.runtime.run_context import RunContext, active_run_id, clear_active_run, new_run_context
 from local_engine.runtime.run_index import RunIndex
+from local_engine.runtime.run_store import RunStore
+from local_engine.runtime.state import load_state, update_state, write_state
 from local_engine.runtime.task_cache import TaskCache, fingerprint_repository, stable_hash
+from local_engine.runtime.telemetry import write_telemetry_event
+from local_engine.runtime.executor_manager import ExecutorManager
 from local_engine.runtime.quality import QualityEvaluator
 from local_engine.runtime.task_summary import build_task_summary
 from local_engine.safety.approval_gate import require_approval
@@ -140,6 +146,7 @@ class Engine:
         ensure_engine_home()
         state = root / ".local_engine"
         (state / "task_reports").mkdir(parents=True, exist_ok=True)
+        (state / "runs").mkdir(parents=True, exist_ok=True)
         (state / "artifacts").mkdir(parents=True, exist_ok=True)
         project_file = state / "project.yaml"
         if not project_file.exists():
@@ -232,6 +239,7 @@ class Engine:
         skill: Optional[str] = None,
         intent_override: Optional[str] = None,
     ) -> RunOutcome:
+        started_at = time.monotonic()
         if mode not in {"plan", "apply"}:
             raise ValueError("mode must be 'plan' or 'apply'")
         root = validate_project_root(project_root)
@@ -245,6 +253,8 @@ class Engine:
             intents, normalized["raw_requirement"], intent_override=intent_override, skill=skill
         )
         context = new_run_context(root)
+        hook_recorder = RuntimeEventRecorder(context.run_id, context.report_dir)
+        hook_recorder.emit("before_run", {"mode": mode, "skill": skill or "", "intent_override": intent_override or ""})
         write_run_metadata(
             context.global_run_dir,
             {
@@ -259,6 +269,12 @@ class Engine:
             },
         )
         config = load_engine_config()
+        update_state(
+            context.report_dir,
+            phase="initializing",
+            status="running",
+            config={"hooks_enabled": bool(config.get("hooks", {}).get("enabled", True)), "loop_enabled": bool(config.get("loop", {}).get("enabled", False))},
+        )
         for agent in agents:
             validate_agent_skill_references(agent, skills.names)
         _preferences = load_preferences()  # loaded intentionally; preferences are part of the run contract
@@ -326,6 +342,22 @@ class Engine:
         context.write_text("internal/graph_quality.md", graph_quality.to_markdown())
         if not graph_quality.passed:
             raise GraphQualityError(graph_quality)
+        hook_recorder.emit("after_plan", {"intent": intent, "task_count": len(graph["tasks"]), "graph_quality": graph_quality.to_dict()})
+        update_state(
+            context.report_dir,
+            phase="planned",
+            tasks={
+                task["id"]: {
+                    "status": "pending",
+                    "lifecycle_status": "pending",
+                    "skill": task["skill"],
+                    "agent": task.get("agent", ""),
+                    "depends_on": task.get("depends_on", []),
+                }
+                for task in graph["tasks"]
+            },
+            artifacts={"task_graph": "task_graph.yaml", "state": "state.json"},
+        )
         input_hash = stable_hash(
             {
                 "requirement": normalized,
@@ -371,6 +403,16 @@ class Engine:
         }
         write_run_metadata(context.global_run_dir, run_metadata)
         self._emit(event_callback, "graph_ready", {"run_id": context.run_id, "tasks": graph["tasks"]})
+
+        def runtime_event_callback(event: str, payload: Dict[str, Any]) -> None:
+            task_id = str(payload.get("task_id", ""))
+            if event == "task_started":
+                hook_recorder.emit("before_task", payload, task_id=task_id)
+            elif event == "task_finished":
+                hook_recorder.emit("after_task", payload, task_id=task_id)
+                if payload.get("failed") or payload.get("lifecycle_status") in {"failed", "needs_human", "logic_failed"}:
+                    hook_recorder.emit("on_task_fail", payload, task_id=task_id)
+            self._emit(event_callback, event, payload)
 
         def prompt_for_task(task: Dict[str, Any], dependencies: Dict[str, Any]) -> str:
             prompt = compile_task_prompt(
@@ -457,7 +499,7 @@ class Engine:
             worker_factory,
             root,
             context.agent_outputs_dir,
-            status_callback=event_callback,
+            status_callback=runtime_event_callback,
             artifact_dir=context.artifacts_dir,
             agent_resolver=lambda task: resolved_agents[task["id"]],
             execution_config={
@@ -469,6 +511,19 @@ class Engine:
             result_finalizer=finalize_task,
             result_loader=load_cached,
         )
+        quality_failures = {}
+        for task_id, result in results.items():
+            if result.lifecycle_status in {"failed", "needs_human", "logic_failed"} or result.review_status == "failed" or result.warnings:
+                payload = {
+                    "task_id": task_id,
+                    "lifecycle_status": result.lifecycle_status,
+                    "review_status": result.review_status,
+                    "warnings": result.warnings,
+                    "quality_score": result.quality_score,
+                }
+                quality_failures[task_id] = payload
+                hook_recorder.emit("on_quality_fail", payload, task_id=task_id)
+        self._write_run_state(context, graph, results, "tasks_completed", status="running", quality_failures=quality_failures)
         for task in graph["tasks"]:
             definition = resolved_skills[task["id"]]
             task_cache.store(
@@ -503,6 +558,7 @@ class Engine:
             require_approval(apply_approved)
             self._apply_patches(root, patch_paths)
 
+        hook_recorder.emit("before_report", {"warnings": warnings, "deliverable_count": len(deliverable_paths)})
         final = context.write_text(
             "final_report.md",
             build_final_report(
@@ -517,6 +573,7 @@ class Engine:
                 context_quality=context_quality.to_dict(),
             ),
         )
+        hook_recorder.emit("after_report", {"final_report": str(final)})
         task_statuses = {
             task_id: result.status
             for task_id, result in results.items()
@@ -529,6 +586,16 @@ class Engine:
         )
         failed_count = len(task_statuses) - passed_count
         run_status = detect_status(context.report_dir)
+        self._write_run_state(
+            context,
+            graph,
+            results,
+            "finished",
+            status=run_status,
+            quality_failures=quality_failures,
+            final_report=final,
+            duration_seconds=time.monotonic() - started_at,
+        )
         run_metadata.update(
             {
                 "status": run_status,
@@ -551,26 +618,94 @@ class Engine:
                 "has_failures": failed_count > 0,
             },
         )
+        write_telemetry_event(
+            context.project_state,
+            config,
+            {
+                "command_type": "run",
+                "run_status": run_status,
+                "task_count": len(task_statuses),
+                "success_count": passed_count,
+                "failure_count": failed_count,
+                "duration_seconds": round(time.monotonic() - started_at, 3),
+                "executor_type": config.get("execution", {}).get("default_executor", "claude") if isinstance(config.get("execution"), dict) else "claude",
+                "error_type": "task_failure" if failed_count else "",
+            },
+        )
         return RunOutcome(context.run_id, context.report_dir, final, warnings, task_statuses, error_log)
 
     @staticmethod
     def _configured_worker_factory(config: Dict[str, Any]) -> Callable[[str], ClaudeCLIWorker]:
         """Create workers by model name while retaining legacy ``claude_command`` config."""
-        commands = config.get("model_commands", {}) if isinstance(config.get("model_commands"), dict) else {}
+        manager = ExecutorManager(config)
+        execution = config.get("execution", {}) if isinstance(config.get("execution"), dict) else {}
 
         def factory(model: str = "claude") -> ClaudeCLIWorker:
-            # ``claude_command`` predates model routing and remains the canonical
-            # override for the primary worker, including existing project config.
-            command = config.get("claude_command") if model == "claude" else commands.get(model)
-            if command is None and model == "claude":
-                command = commands.get("claude", ["claude"])
-            if command is None:
-                command = [model]
-            if isinstance(command, str):
-                command = [command]
+            selected = model or str(execution.get("default_executor") or "claude")
+            command = manager.command_for(selected)
             return ClaudeCLIWorker(command=command, timeout_seconds=config.get("timeout_seconds", 300))
 
         return factory
+
+    @staticmethod
+    def _write_run_state(
+        context: RunContext,
+        graph: Dict[str, Any],
+        results: Dict[str, TaskResult],
+        phase: str,
+        status: str = "running",
+        quality_failures: Optional[Dict[str, Any]] = None,
+        final_report: Optional[Path] = None,
+        duration_seconds: Optional[float] = None,
+    ) -> None:
+        state = load_state(context.report_dir)
+        tasks = {}
+        task_index = {task["id"]: task for task in graph.get("tasks", [])}
+        for task_id, result in results.items():
+            task = task_index.get(task_id, {})
+            tasks[task_id] = {
+                "status": result.status,
+                "lifecycle_status": result.lifecycle_status,
+                "review_status": result.review_status,
+                "review_rounds": result.review_rounds,
+                "loop_status": result.loop_status,
+                "loop_rounds": result.loop_rounds,
+                "loop_history": result.loop_history,
+                "cache_action": result.cache_action,
+                "failed": result.failed,
+                "failure_type": result.failure_type,
+                "warnings": result.warnings,
+                "quality_score": result.quality_score,
+                "agent": task.get("agent", ""),
+                "skill": task.get("skill", ""),
+            }
+        loops = {
+            task_id: {
+                "status": item["loop_status"],
+                "rounds": item["loop_rounds"],
+                "history": item["loop_history"],
+            }
+            for task_id, item in tasks.items()
+            if item.get("loop_rounds") or item.get("loop_status") not in {"", "skipped"}
+        }
+        state.update(
+            {
+                "status": status,
+                "phase": phase,
+                "tasks": tasks or state.get("tasks", {}),
+                "loops": loops,
+                "quality_failures": quality_failures or {},
+                "artifacts": {
+                    **(state.get("artifacts", {}) if isinstance(state.get("artifacts"), dict) else {}),
+                    "task_graph": "task_graph.yaml",
+                    "state": "state.json",
+                    "final_report": "final_report.md" if final_report else state.get("artifacts", {}).get("final_report", ""),
+                },
+            }
+        )
+        if duration_seconds is not None:
+            state["duration_seconds"] = round(float(duration_seconds), 3)
+        write_state(context.report_dir, state)
 
     @staticmethod
     def _capabilities() -> set[str]:
@@ -634,6 +769,8 @@ class Engine:
     ) -> None:
         """Review executable task outputs and revise them until pass or the configured limit."""
         review_config = config.get("review", {}) if isinstance(config.get("review"), dict) else {}
+        loop_config = config.get("loop", {}) if isinstance(config.get("loop"), dict) else {}
+        loop_enabled = bool(loop_config.get("enabled", False))
         enabled = bool(review_config.get("enabled", True))
         max_rounds = review_config.get("max_rounds", 2)
         if isinstance(max_rounds, bool) or not isinstance(max_rounds, int) or max_rounds < 1:
@@ -774,6 +911,8 @@ class Engine:
     ) -> TaskResult:
         """Apply quality policy and optional review before releasing dependencies."""
         review_config = config.get("review", {}) if isinstance(config.get("review"), dict) else {}
+        loop_config = config.get("loop", {}) if isinstance(config.get("loop"), dict) else {}
+        loop_enabled = bool(loop_config.get("enabled", False))
         enabled = bool(review_config.get("enabled", True))
         threshold = review_config.get("threshold", 0.75)
         if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
@@ -782,6 +921,10 @@ class Engine:
         max_rounds = review_config.get("max_rounds", 2)
         if isinstance(max_rounds, bool) or not isinstance(max_rounds, int) or max_rounds < 1:
             max_rounds = 2
+        if loop_enabled:
+            loop_rounds = loop_config.get("max_rounds", max_rounds)
+            if not isinstance(loop_rounds, bool) and isinstance(loop_rounds, int) and loop_rounds >= 1:
+                max_rounds = loop_rounds
         skill = resolved_skills[task["id"]]
         triggers = self._quality_triggers(task, current, skill, review_config, threshold)
         current.quality_score = self._confidence(current)
@@ -791,10 +934,12 @@ class Engine:
         excluded = task["expected_output"]["type"] in {"review", "memory_update"}
         if current.failed:
             current.review_status = "skipped"
+            current.loop_status = "needs_human" if loop_enabled and current.failure_type in _NEEDS_HUMAN_FAILURES else "skipped"
             current.lifecycle_status = "needs_human" if current.failure_type in _NEEDS_HUMAN_FAILURES else "failed"
             current.unresolved_issues = [current.error_message or "Task execution failed"]
         elif excluded or not enabled or not triggers:
             current.review_status = "skipped"
+            current.loop_status = "skipped"
             current.lifecycle_status = "passed"
             self._write_review(
                 context,
@@ -862,12 +1007,27 @@ class Engine:
                 current.review_status = "passed" if passed else "failed"
                 current.unresolved_issues = [] if passed else issues
                 if passed:
+                    if current.loop_rounds:
+                        current.loop_status = "passed"
                     current.lifecycle_status = "passed"
                     break
                 if round_number == max_rounds:
+                    if loop_enabled:
+                        current.loop_status = "needs_human"
                     current.lifecycle_status = "failed"
                     break
                 current.lifecycle_status = "revising"
+                if loop_enabled:
+                    current.loop_rounds += 1
+                    current.loop_status = "retrying"
+                    current.loop_history.append(
+                        {
+                            "round": round_number,
+                            "trigger": "review_failed",
+                            "action": "generate_fix_task",
+                            "issues": list(issues),
+                        }
+                    )
                 revision_prompt = self._revision_prompt(
                     task,
                     normalized,
@@ -897,7 +1057,20 @@ class Engine:
                 current = self._task_result_from_recovery(task, revision_recovery)
                 current.review_rounds = round_number
                 current.review_status = "revising"
+                if loop_enabled:
+                    current.loop_rounds = round_number
+                    current.loop_status = "retrying"
+                    current.loop_history.append(
+                        {
+                            "round": round_number,
+                            "trigger": "review_failed",
+                            "action": "retry",
+                            "failed": current.failed,
+                        }
+                    )
                 if current.failed:
+                    if loop_enabled:
+                        current.loop_status = "needs_human" if current.failure_type in _NEEDS_HUMAN_FAILURES else "failed"
                     current.lifecycle_status = "needs_human" if current.failure_type in _NEEDS_HUMAN_FAILURES else "failed"
                     break
 
@@ -1228,6 +1401,9 @@ class Engine:
                     "retry_history": result.retry_history,
                     "review_rounds": result.review_rounds,
                     "review_status": result.review_status,
+                    "loop_rounds": result.loop_rounds,
+                    "loop_status": result.loop_status,
+                    "loop_history": result.loop_history,
                     "unresolved_issues": result.unresolved_issues,
                     "failure_type": result.failure_type,
                     "warnings": result.warnings,

@@ -9,12 +9,20 @@ import yaml
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "workers": 4,
+    "executors": {
+        "claude": {
+            "command": ["claude"],
+            "enabled": True,
+        }
+    },
     "claude_command": ["claude"],
     "timeout_seconds": 300,
-    "model_commands": {"claude": ["claude"], "codex": ["codex"]},
+    "model_commands": {"claude": ["claude"]},
     "execution": {
         "max_retries": 2,
-        "fallback_model": "codex",
+        "default_executor": "claude",
+        "fallback_executor": None,
+        "fallback_model": None,
         "fallback_prompt": True,
         "continue_on_failure": True,
         "timeout_multiplier": 1.5,
@@ -32,6 +40,21 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "min_body_characters": 80,
         "max_body_characters": 12000,
         "low_confidence_threshold": 0.5,
+    },
+    "hooks": {
+        "enabled": True,
+    },
+    "loop": {
+        "enabled": False,
+        "max_rounds": 2,
+        "review_required_for": ["deliverable", "code_patch"],
+        "stop_on": ["repeated_failure", "unsafe_patch", "missing_context"],
+    },
+    "telemetry": {
+        "enabled": False,
+        "mode": "local_only",
+        "anonymize": True,
+        "collect": ["version", "command_type", "run_status", "task_count", "duration", "error_type"],
     },
 }
 DEFAULT_PREFERENCES: Dict[str, Any] = {"default_mode": "plan", "language": "en"}
@@ -89,7 +112,7 @@ def load_engine_config() -> Dict[str, Any]:
     configured = load_yaml(home / "config.yaml", DEFAULT_CONFIG)
     merged = dict(DEFAULT_CONFIG)
     merged.update(configured)
-    for key in ("model_commands", "execution", "review", "quality"):
+    for key in ("executors", "model_commands", "execution", "review", "quality", "hooks", "loop", "telemetry"):
         defaults = DEFAULT_CONFIG[key]
         value = configured.get(key)
         if isinstance(value, dict):

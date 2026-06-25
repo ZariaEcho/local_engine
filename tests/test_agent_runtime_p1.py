@@ -18,7 +18,7 @@ def test_default_agent_and_skill_registries_are_yaml_backed_and_render_prompts()
     backend = agents.get("backend")
     audit = skills.get("audit_repo")
     assert backend.model.primary == "claude"
-    assert backend.model.fallback == "codex"
+    assert backend.model.fallback == ""
     assert audit.default_agent == "reviewer"
     assert "{{ task_title }}" not in render_prompt("Task: {{ task_title }}", {"task_title": "Audit"})
 
@@ -30,7 +30,7 @@ def test_registry_cli_commands_show_dynamic_definitions():
 
     assert agents.exit_code == 0, agents.output
     assert "name: backend" in agents.output
-    assert "fallback: codex" in agents.output
+    assert "fallback: ''" in agents.output
     assert skills.exit_code == 0, skills.output
     assert "name: audit_repo" in skills.output
     assert "default_agent: reviewer" in skills.output
@@ -70,7 +70,7 @@ def test_cli_run_accepts_selected_skill(tmp_path, monkeypatch):
     outcome = CliRunner().invoke(app, ["run", "--project", str(project), "--skill", "audit_repo", "审计这个项目"])
 
     assert outcome.exit_code == 0, outcome.output
-    report_dir = next((project / ".local_engine" / "task_reports").iterdir())
+    report_dir = next((project / ".local_engine" / "runs").iterdir())
     assert (report_dir / "deliverables" / "AUDIT_REPO.md").is_file()
 
 
@@ -101,6 +101,10 @@ def test_primary_failure_retries_then_uses_fallback_and_writes_required_artifact
     project.mkdir()
     engine = Engine()
     engine.initialize(project)
+    (tmp_path / "global" / "config.yaml").write_text(
+        json.dumps({"execution": {"max_retries": 2, "fallback_model": "codex"}}),
+        encoding="utf-8",
+    )
     state = {"calls": []}
 
     outcome = engine.run(

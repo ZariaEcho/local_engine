@@ -143,7 +143,7 @@ def test_cli_run_writes_audit_and_knowledge_gap_deliverables(tmp_path, monkeypat
     assert "task_status:" in audit.output
     learn = runner.invoke(app, ["run", "--project", str(project), "指出知识点欠缺"])
     assert learn.exit_code == 0, learn.output
-    reports = sorted((project / ".local_engine" / "task_reports").iterdir())
+    reports = sorted((project / ".local_engine" / "runs").iterdir())
     assert any((report / "deliverables" / "AUDIT_REPORT.md").is_file() for report in reports)
     assert any((report / "deliverables" / "KNOWLEDGE_GAP.md").is_file() for report in reports)
     latest = runner.invoke(app, ["report", "--latest"])
@@ -168,7 +168,7 @@ def test_cli_run_reports_claude_failure_after_writing_run_evidence(tmp_path, mon
     assert result.exit_code == 1, result.output
     assert "Claude CLI failed" in result.output
     assert "task_status:" in result.output
-    reports = sorted((project / ".local_engine" / "task_reports").iterdir())
+    reports = sorted((project / ".local_engine" / "runs").iterdir())
     report = reports[-1]
     assert (report / "error.log").is_file()
     assert "Claude CLI exited with code 23" in (report / "final_report.md").read_text(encoding="utf-8")

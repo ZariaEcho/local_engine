@@ -16,7 +16,7 @@ def test_init_creates_project_and_global_state(tmp_path, monkeypatch):
     assert (state / "project.yaml").is_file()
     assert (state / "context.md").is_file()
     assert (state / "memory.md").is_file()
-    assert (state / "task_reports").is_dir()
+    assert (state / "runs").is_dir()
     assert (state / "artifacts").is_dir()
     assert (tmp_path / "global" / "config.yaml").is_file()
     assert (tmp_path / "global" / "memory" / "experience_memory.md").is_file()

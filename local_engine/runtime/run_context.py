@@ -9,6 +9,7 @@ import yaml
 
 from local_engine.runtime.config import ensure_engine_home
 from local_engine.runtime.run_index import RunIndex
+from local_engine.runtime.run_store import create_run_dir
 
 
 _ACTIVE_RUN_ID: ContextVar[str] = ContextVar("local_engine_active_run_id", default="")
@@ -71,21 +72,8 @@ def new_run_context(project_root: Path) -> RunContext:
         raise FileNotFoundError("project is not initialized; run `local-engine init --project <path>` first")
     run_id = RunIndex().allocate(root)
     _ACTIVE_RUN_ID.set(run_id)
-    report_dir = state / "task_reports" / run_id
+    report_dir = create_run_dir(state, run_id, root)
     global_run_dir = ensure_engine_home() / "runs" / run_id
-    for directory in (
-        report_dir,
-        report_dir / "prompts",
-        report_dir / "agent_outputs",
-        report_dir / "patches",
-        report_dir / "artifacts",
-        report_dir / "artifacts" / "errors",
-        report_dir / "artifacts" / "retries",
-        report_dir / "deliverables",
-        report_dir / "reviews",
-        report_dir / "internal",
-    ):
-        directory.mkdir(parents=True, exist_ok=True)
     return RunContext(run_id, root, state, report_dir, global_run_dir)
 
 

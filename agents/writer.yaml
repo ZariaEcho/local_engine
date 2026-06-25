@@ -1,5 +1,5 @@
 name: writer
 description: Writing agent for structured reports, documentation, and learning plans.
 skills: [writer, learning_plan]
-model: {primary: claude, fallback: codex}
+model: {primary: claude, fallback: ""}
 limits: {max_retries: 2}

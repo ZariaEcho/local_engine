@@ -25,9 +25,19 @@ def build_final_report(
         lifecycle = getattr(result, "lifecycle_status", status)
         rounds = getattr(result, "review_rounds", 0)
         review = getattr(result, "review_status", "skipped")
+        loop_status = getattr(result, "loop_status", "skipped")
+        loop_rounds = getattr(result, "loop_rounds", 0)
         task_lines.append(
-            "| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} |".format(
-                task["id"], task.get("agent", "-"), task["skill"], task["expected_output"]["type"], status, lifecycle, getattr(result, "cache_action", "execute"), "{0} ({1})".format(review, rounds)
+            "| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} |".format(
+                task["id"],
+                task.get("agent", "-"),
+                task["skill"],
+                task["expected_output"]["type"],
+                status,
+                lifecycle,
+                getattr(result, "cache_action", "execute"),
+                "{0} ({1})".format(review, rounds),
+                "{0} ({1})".format(loop_status, loop_rounds),
             )
         )
         for issue in getattr(result, "unresolved_issues", []) or []:
@@ -88,8 +98,8 @@ Planner confidence: {planner_confidence}
 {count} tasks; independent tasks were scheduled in parallel where worker capacity allowed.
 
 ## Task Status
-    | Task | Agent | Skill | Expected Output | Execution | Lifecycle | Cache | Review |
-    | --- | --- | --- | --- | --- | --- | --- | --- |
+    | Task | Agent | Skill | Expected Output | Execution | Lifecycle | Cache | Review | Loop |
+    | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {task_lines}
 
 ## Review Summary

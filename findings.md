@@ -2,6 +2,18 @@
 
 ## Requirements
 
+- 2026-06-26 staged refactor implementation:
+  - Treat `local-engine` primarily as a local task-graph Runtime, not a multi-agent cluster.
+  - Freeze P0 architecture, runtime contracts, engine baseline, and smoke paths before deep refactoring.
+  - Split runtime responsibilities behind compatibility APIs while keeping `Engine` usable.
+  - Move new project-local runs from `.local_engine/task_reports/<run_id>/` to `.local_engine/runs/<run_id>/` and preserve legacy reads.
+  - Remove default Codex fallback; Codex must be explicitly configured as an optional executor.
+  - Rename worker semantics toward executor contracts and add typed request/result interfaces.
+  - Add top-level lifecycle commands: `status`, `resume`, and `--version`.
+  - Implement only built-in Hook events for P2, with no plugin marketplace or arbitrary shell hook.
+  - Implement Loop as a quality/review-driven closed loop with state/final-report evidence.
+  - Add default-disabled local-only telemetry that never captures prompts, source code, raw user requests, paths, environment, or model output.
+
 - 2026-06-25 MVP real-run fixes:
   - Detect algorithm repositories from project files/keywords and persist `artifacts/project_type.json`.
   - Build BUILD graphs from intent, project type, and requirement; algorithm repositories must not receive generic backend/frontend/api/ui/database tasks unless explicitly requested.

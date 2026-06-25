@@ -20,8 +20,10 @@ from local_engine.runtime.doctor import run_doctor
 from local_engine.runtime.engine import Engine
 from local_engine.runtime.reporting import resolve_report
 from local_engine.runtime.run_index import RunIndex
+from local_engine.runtime.run_store import RunStore
 from local_engine.skills.registry import SkillRegistry
 from local_engine.intents.classification import ClarificationRequired
+from local_engine.__version__ import __version__
 
 
 app = typer.Typer(help="A local repository-aware Context Engine powered by Claude CLI workers.")
@@ -31,6 +33,25 @@ runs_app = typer.Typer(help="Inspect and open globally indexed engine runs.")
 app.add_typer(agents_app, name="agents")
 app.add_typer(skills_app, name="skills")
 app.add_typer(runs_app, name="runs")
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show local-engine version and exit.",
+    )
+) -> None:
+    """local-engine command group."""
 
 
 def _print_registry_error(exc: Exception) -> None:
@@ -410,6 +431,47 @@ def report(
     typer.echo("final_report: {0}".format(final_report))
     typer.echo("")
     typer.echo(final_report.read_text(encoding="utf-8"))
+
+
+@app.command()
+def status(
+    project: Path = typer.Option(..., "--project", help="Initialized project root."),
+    latest: bool = typer.Option(True, "--latest/--no-latest", help="Show the latest project-local run."),
+    run_id: Optional[str] = typer.Option(None, "--run-id", help="Show a specific project-local run."),
+) -> None:
+    """Show project-local run state."""
+    try:
+        state = RunStore(project.expanduser().resolve() / ".local_engine").status(run_id=run_id, latest=latest)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo("Error: {0}".format(exc), err=True)
+        raise typer.Exit(code=1)
+    typer.echo("run_id: {0}".format(state["run_id"]))
+    typer.echo("status: {0}".format(state["status"]))
+    typer.echo("phase: {0}".format(state["phase"]))
+    typer.echo("run_dir: {0}".format(state["run_dir"]))
+    typer.echo("tasks: {0} completed, {1} failed, {2} total".format(state["completed_count"], state["failed_count"], state["task_count"]))
+    if state.get("final_report"):
+        typer.echo("final_report: {0}".format(state["final_report"]))
+
+
+@app.command()
+def resume(
+    project: Path = typer.Option(..., "--project", help="Initialized project root."),
+    latest: bool = typer.Option(True, "--latest/--no-latest", help="Resume the latest project-local run."),
+    run_id: Optional[str] = typer.Option(None, "--run-id", help="Resume a specific project-local run."),
+) -> None:
+    """Recover a run from state and regenerate its final report when possible."""
+    try:
+        state = RunStore(project.expanduser().resolve() / ".local_engine").resume(run_id=run_id, latest=latest)
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        typer.echo("Error: {0}".format(exc), err=True)
+        raise typer.Exit(code=1)
+    typer.echo("run_id: {0}".format(state["run_id"]))
+    typer.echo("status: {0}".format(state["status"]))
+    typer.echo("phase: {0}".format(state["phase"]))
+    typer.echo("run_dir: {0}".format(state["run_dir"]))
+    if state.get("final_report"):
+        typer.echo("final_report: {0}".format(state["final_report"]))
 
 
 def _record_report_dir(record: Dict[str, Any]) -> Path:

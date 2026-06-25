@@ -1,5 +1,5 @@
 name: backend
 description: Backend development agent for implementation, APIs, and service logic.
 skills: [backend, generate_api, inspect_repo, fix_code]
-model: {primary: claude, fallback: codex}
+model: {primary: claude, fallback: ""}
 limits: {max_retries: 2}

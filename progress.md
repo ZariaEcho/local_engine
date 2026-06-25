@@ -1,5 +1,31 @@
 # Progress Log
 
+## Session: 2026-06-26 — Staged Runtime refactor implementation
+
+### Phase 24: P0 architecture and contract baseline
+
+- **Status:** complete
+- Actions taken:
+  - Read the approved staged refactor plan and restored planning-with-files context.
+  - Confirmed the current branch is `codex/staged-refactor`.
+  - Inspected current config, run context, CLI, and references to Codex fallback and legacy `task_reports`.
+  - Added Phases 24-28 to track P0-P3 implementation and verification.
+  - Added `docs/ARCHITECTURE.md`, `docs/RUNTIME_CONTRACTS.md`, and `docs/REFACTOR_BASELINE.md`.
+  - Added Runtime contract/state/store/events/executor facade modules and moved new runs to `.local_engine/runs/<run_id>/`.
+  - Added built-in hook event recording, loop state fields, `status`, `resume`, `--version`, version/changelog, and default-disabled local telemetry.
+  - Removed Codex from default config and built-in agent fallback definitions while retaining explicit fallback compatibility.
+  - Updated README, config template, and regression tests for the staged Runtime contract.
+
+## Staged Refactor Verification
+
+| Check | Result |
+|------|--------|
+| New P0-P3 acceptance tests | passed |
+| Full regression suite | 96 passed |
+| CLI smoke run/report/status/resume | passed |
+| `local-engine --version` | 0.3.0 |
+| `git diff --check` | passed |
+
 ## Session: 2026-06-25 — MVP real-run fixes
 
 ### Phase 19: MVP real-run fix discovery

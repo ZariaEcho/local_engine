@@ -6,13 +6,15 @@ from typing import Any, Dict
 
 @dataclass(frozen=True)
 class FallbackPolicy:
-    model: str = "codex"
+    model: str = ""
     prompt_enabled: bool = True
 
     @classmethod
     def from_config(cls, config: Dict[str, Any], agent: Any = None) -> "FallbackPolicy":
         execution = config if isinstance(config, dict) else {}
-        configured = execution.get("fallback_model", "codex")
+        configured = execution.get("fallback_executor")
+        if not configured:
+            configured = execution.get("fallback_model", "")
         agent_model = getattr(getattr(agent, "model", None), "fallback", "")
         model = str(agent_model or configured or "").strip()
         prompt_enabled = bool(execution.get("fallback_prompt", True))
