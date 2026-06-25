@@ -112,7 +112,8 @@ def test_new_run_dir_state_latest_status_resume_hooks_and_version(tmp_path, monk
 
     resume = runner.invoke(app, ["resume", "--project", str(project)])
     assert resume.exit_code == 0, resume.output
-    assert "phase: resumed" in resume.output
+    assert "status: completed" in resume.output
+    assert "phase: finished" in resume.output
 
 
 def test_loop_state_and_final_report_are_recorded_when_enabled(tmp_path, monkeypatch):

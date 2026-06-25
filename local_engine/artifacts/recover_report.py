@@ -10,6 +10,19 @@ import yaml
 
 
 FAILED_STATES = {"failed", "failed_but_continued", "needs_human", "logic_failed"}
+FAILED_TASK_STATUSES = FAILED_STATES | {"error", "timeout", "cancelled", "interrupted", "blocked"}
+FAILED_LIFECYCLE_STATUSES = {
+    "failed",
+    "error",
+    "timeout",
+    "cancelled",
+    "blocked",
+    "interrupted",
+    "needs_human",
+    "logic_failed",
+}
+SUCCESS_TASK_STATUSES = {"completed", "complete", "passed", "success", "skipped", "warning"}
+SUCCESS_LIFECYCLE_STATUSES = {"passed", "completed", "complete", "success", "skipped"}
 
 
 def recover_report(report_dir: Path) -> Path:
@@ -100,9 +113,6 @@ def recover_report(report_dir: Path) -> Path:
 def detect_status(report_dir: Path) -> str:
     """Infer a terminal run status from the artifacts left in ``report_dir``."""
     root = Path(report_dir).expanduser()
-    if _has_interrupt_marker(root):
-        return "interrupted"
-
     task_records = _task_records(root)
     error_records = _read_json_dir(root / "artifacts" / "errors")
     output_paths = sorted((root / "agent_outputs").glob("*.md")) if (root / "agent_outputs").is_dir() else []
@@ -111,20 +121,24 @@ def detect_status(report_dir: Path) -> str:
     fatal_error = _has_fatal_error(root, error_records)
 
     if task_records:
-        passed = 0
+        completed = 0
         failed = 0
         for record in task_records:
             if _record_failed(record):
                 failed += 1
-            else:
-                passed += 1
-        if passed and (failed or error_records):
-            return "partial"
-        if failed and not passed:
-            return "failed"
-        if passed and not error_records:
+            elif _record_completed(record):
+                completed += 1
+        total = len(task_records)
+        if total > 0 and completed == total and failed == 0:
             return "completed"
-        return "partial" if output_paths else "failed"
+        if total > 0 and failed == total:
+            return "failed"
+        if completed > 0 or failed > 0:
+            return "partial"
+        return "running"
+
+    if _has_interrupt_marker(root):
+        return "interrupted"
 
     output_statuses = _output_statuses(output_paths)
     passed_outputs = [task_id for task_id, status in output_statuses.items() if status not in FAILED_STATES]
@@ -140,7 +154,9 @@ def detect_status(report_dir: Path) -> str:
         return "partial"
     if fatal_error:
         return "failed"
-    return "failed"
+    if (root / "final_report.md").is_file():
+        return "completed"
+    return "unknown"
 
 
 def _read_text(path: Path, limit: int = 12000) -> str:
@@ -361,14 +377,40 @@ def _task_records(root: Path) -> List[Dict[str, Any]]:
 
 
 def _task_records_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    if isinstance(payload, list):
+        return [task for task in payload if isinstance(task, dict)]
     tasks = payload.get("tasks") if isinstance(payload, dict) else []
+    if isinstance(tasks, dict):
+        return [task for task in tasks.values() if isinstance(task, dict)]
     return [task for task in tasks if isinstance(task, dict)] if isinstance(tasks, list) else []
 
 
 def _record_failed(record: Dict[str, Any]) -> bool:
-    status = str(record.get("status") or "")
-    lifecycle = str(record.get("lifecycle_status") or "")
-    return bool(record.get("worker_failed")) or status in FAILED_STATES or lifecycle in FAILED_STATES
+    status = _normalize_status(record.get("status"))
+    lifecycle = _normalize_status(record.get("lifecycle_status"))
+    return _truthy(record.get("worker_failed")) or status in FAILED_TASK_STATUSES or lifecycle in FAILED_LIFECYCLE_STATUSES
+
+
+def _record_completed(record: Dict[str, Any]) -> bool:
+    status = _normalize_status(record.get("status"))
+    lifecycle = _normalize_status(record.get("lifecycle_status"))
+    if status in SUCCESS_TASK_STATUSES and (not lifecycle or lifecycle in SUCCESS_LIFECYCLE_STATUSES):
+        return True
+    if lifecycle in SUCCESS_LIFECYCLE_STATUSES and (not status or status not in FAILED_TASK_STATUSES):
+        return True
+    return False
+
+
+def _normalize_status(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
 
 
 def _output_statuses(outputs: Iterable[Path]) -> Dict[str, str]:
