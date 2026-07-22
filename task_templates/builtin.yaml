@@ -1,0 +1,206 @@
+templates:
+  - name: audit_scan
+    task_type: scan
+    id: scan
+    title: Inspect repository structure
+    expected_output: {type: report, path: artifacts/audit/REPOSITORY_SCAN.md}
+    constraints: &safe {must: [Use repository context and state uncertainty.], must_not: [Do not modify files outside the project root.]}
+  - name: audit_analyze
+    task_type: analyze
+    id: analyze
+    title: Analyze architecture and risks
+    depends_on: [audit_scan]
+    risk_tags: [architecture, security]
+    review_required: true
+    expected_output: {type: analysis, path: artifacts/audit/ARCHITECTURE_ANALYSIS.md}
+    constraints: *safe
+  - name: audit_report
+    task_type: report
+    id: audit_report
+    title: Write the audit report
+    depends_on: [audit_analyze]
+    expected_output: {type: report, path: deliverables/AUDIT_REPORT.md}
+    constraints: *safe
+  - name: plan_scan
+    task_type: scan
+    id: scan
+    title: Inspect relevant project context
+    expected_output: {type: report, path: artifacts/plan/PROJECT_SCAN.md}
+    constraints: *safe
+  - name: plan_write
+    task_type: plan
+    id: plan
+    title: Write an actionable implementation plan
+    depends_on: [plan_scan]
+    risk_tags: [architecture]
+    expected_output: {type: doc, path: deliverables/PLAN.md}
+    constraints: *safe
+  - name: learn_scan
+    task_type: scan
+    id: scan
+    title: Inspect repository concepts
+    expected_output: {type: report, path: artifacts/plan/REPOSITORY_CONCEPTS.md}
+    constraints: *safe
+  - name: learn_gap
+    task_type: data_analysis
+    id: knowledge_gap
+    title: Identify knowledge gaps
+    depends_on: [learn_scan]
+    expected_output: {type: analysis, path: deliverables/KNOWLEDGE_GAP.md}
+    constraints: *safe
+  - name: learn_plan
+    task_type: learning_plan
+    id: learning_plan
+    title: Write a learning plan
+    depends_on: [learn_gap]
+    expected_output: {type: doc, path: deliverables/LEARNING_PLAN.md}
+    constraints: *safe
+  - name: build_plan
+    task_type: plan
+    id: plan
+    title: Plan the requested implementation
+    risk_tags: [architecture]
+    expected_output: {type: report, path: artifacts/plan/IMPLEMENTATION_PLAN.md}
+    constraints: *safe
+  - name: build_backend
+    task_type: backend
+    id: backend
+    title: Implement backend changes
+    depends_on: [build_plan]
+    risk_tags: [code_change]
+    review_required: true
+    expected_output: {type: patch, path: patches/BACKEND.patch}
+    constraints: *safe
+  - name: build_frontend
+    task_type: frontend
+    id: frontend
+    title: Implement frontend changes
+    depends_on: [build_plan]
+    risk_tags: [code_change]
+    review_required: true
+    expected_output: {type: patch, path: patches/FRONTEND.patch}
+    constraints: *safe
+  - name: build_test
+    task_type: test
+    id: test
+    title: Create a regression test plan
+    depends_on: [build_backend, build_frontend]
+    expected_output: {type: report, path: artifacts/test/TEST_PLAN.md}
+    constraints: *safe
+  - name: build_algorithm_generate
+    task_type: code_generation
+    id: generate_algorithm_files
+    title: Generate algorithm implementation files
+    depends_on: [build_plan]
+    risk_tags: [code_change]
+    review_required: true
+    expected_output: {type: patch, path: patches/ALGORITHM_FILES.patch}
+    constraints:
+      must: [Use repository context and state uncertainty., Generate algorithm-focused files only.]
+      must_not: [Do not modify files outside the project root., Do not create generic web-app scaffolding unless the user explicitly requested it.]
+  - name: build_algorithm_test
+    task_type: test_generation
+    id: test_algorithm_files
+    title: Generate algorithm tests
+    depends_on: [build_algorithm_generate]
+    expected_output: {type: patch, path: patches/ALGORITHM_TESTS.patch}
+    constraints:
+      must: [Use repository context and state uncertainty., Cover generated algorithm behavior with focused tests.]
+      must_not: [Do not modify files outside the project root., Do not create generic web-app scaffolding unless the user explicitly requested it.]
+  - name: test_scan
+    task_type: scan
+    id: scan
+    title: Inspect test coverage and project behavior
+    expected_output: {type: report, path: artifacts/test/TEST_SCAN.md}
+    constraints: *safe
+  - name: test_plan
+    task_type: test
+    id: test_plan
+    title: Create focused test cases
+    depends_on: [test_scan]
+    expected_output: {type: report, path: artifacts/test/TEST_PLAN.md}
+    constraints: *safe
+  - name: test_report
+    task_type: report
+    id: test_report
+    title: Write test recommendations
+    depends_on: [test_plan]
+    expected_output: {type: report, path: deliverables/TEST_REPORT.md}
+    constraints: *safe
+  - name: document_scan
+    task_type: scan
+    id: scan
+    title: Inspect project modules and public interfaces
+    expected_output: {type: report, path: artifacts/docs/DOCUMENTATION_SCAN.md}
+    constraints: *safe
+  - name: documentation
+    task_type: report
+    id: documentation
+    title: Write project documentation
+    depends_on: [document_scan]
+    expected_output: {type: doc, path: deliverables/DOCUMENTATION.md}
+    constraints: *safe
+  - name: refactor_scan
+    task_type: scan
+    id: scan
+    title: Audit refactoring opportunities
+    expected_output: {type: report, path: artifacts/review/REFACTOR_AUDIT.md}
+    constraints: *safe
+  - name: refactor_plan
+    task_type: plan
+    id: refactor_plan
+    title: Plan the refactor
+    depends_on: [refactor_scan]
+    risk_tags: [architecture]
+    expected_output: {type: report, path: artifacts/plan/REFACTOR_PLAN.md}
+    constraints: *safe
+  - name: refactor_execute
+    task_type: refactor
+    id: refactor
+    title: Implement refactoring changes
+    depends_on: [refactor_plan]
+    risk_tags: [code_change]
+    review_required: true
+    expected_output: {type: patch, path: patches/REFACTOR.patch}
+    constraints: *safe
+  - name: refactor_test
+    task_type: test
+    id: regression_test
+    title: Plan regression tests
+    depends_on: [refactor_execute]
+    expected_output: {type: report, path: artifacts/test/REFACTOR_TESTS.md}
+    constraints: *safe
+  - name: research_scope
+    task_type: research
+    id: research_scope
+    title: Define repository research scope
+    expected_output: {type: research, path: artifacts/plan/RESEARCH_SCOPE.md}
+    constraints: *safe
+  - name: research_analysis
+    task_type: data_analysis
+    id: analysis
+    title: Analyze research findings
+    depends_on: [research_scope]
+    expected_output: {type: analysis, path: artifacts/review/RESEARCH_ANALYSIS.md}
+    constraints: *safe
+  - name: research_report
+    task_type: report
+    id: research_report
+    title: Write the research report
+    depends_on: [research_analysis]
+    expected_output: {type: report, path: deliverables/RESEARCH_REPORT.md}
+    constraints: *safe
+  - name: integration_review
+    task_type: integration_review
+    id: integration_review
+    title: Review all task outputs
+    depends_on: ['*']
+    expected_output: {type: review, path: integration_review.md}
+    constraints: *safe
+  - name: memory_update
+    task_type: memory_update
+    id: memory_update
+    title: Record durable project context
+    depends_on: [integration_review]
+    expected_output: {type: memory_update, path: memory_update.md}
+    constraints: *safe

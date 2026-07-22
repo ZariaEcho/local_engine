@@ -1,0 +1,6 @@
+name: memory_manager
+task_type: memory_update
+description: Capture durable decisions, risks, and follow-up context.
+inputs: [task_outputs]
+outputs: [memory_update]
+default_agent: memory_manager

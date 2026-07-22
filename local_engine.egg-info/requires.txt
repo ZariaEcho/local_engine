@@ -1,0 +1,6 @@
+typer>=0.9
+PyYAML>=6.0
+rich>=13.7
+
+[dev]
+pytest>=7.0

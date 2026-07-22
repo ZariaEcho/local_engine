@@ -1,0 +1,5 @@
+name: RESEARCH
+keywords: [调研, 研究, research, compare]
+required_tasks: [research_scope, research_analysis, research_report]
+optional_tasks: [integration_review, memory_update]
+context_sensitive: true

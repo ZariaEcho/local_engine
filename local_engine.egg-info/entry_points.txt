@@ -1,0 +1,2 @@
+[console_scripts]
+local-engine = local_engine.cli:app
