@@ -1,0 +1,5 @@
+name: reviewer
+description: Senior review agent for repository inspection, audits, and quality checks.
+skills: [reviewer, inspect_repo, audit_repo, review_code]
+model: {primary: claude, fallback: ""}
+limits: {max_retries: 2}
