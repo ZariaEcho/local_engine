@@ -43,9 +43,18 @@ Input to the Runtime entrypoint.
 
 - `project_root`: initialized project path.
 - `raw_input`: original user input or loaded file content.
-- `config`: merged runtime configuration.
-- `run_id`: optional caller-provided run ID.
-- `resume`: whether to resume an existing state.
+- `config`: merged runtime configuration. Phase 1 does not read this field;
+  Engine still loads config internally.
+- `run_id`: optional caller-provided run ID. Phase 1 does not consume it.
+- `resume`: whether to resume an existing state. Phase 1 does not consume it.
+- `input_file`: optional Markdown or TXT requirement file.
+- `mode`: `plan` or `apply`. Defaults to `plan` to match `Engine.run`.
+- `workers`: optional maximum concurrent workers.
+- `worker_factory`: optional injected worker factory for tests and adapters.
+- `apply_approved`: whether project-root writes are approved.
+- `event_callback`: optional scheduler event listener.
+- `skill`: optional direct skill selection instead of intent classification.
+- `intent_override`: optional explicit intent name.
 
 ## RuntimeOutput
 
@@ -57,10 +66,14 @@ Runtime completion result.
 - `final_report_path`: final report path, when available.
 - `deliverables_dir`: deliverables directory.
 - `state`: latest `RunState`.
+- `task_graph_status`: graph completion status copied from the run outcome.
+- `delivery_status`: whether generated artifacts were applied.
+- `user_goal_satisfied`: whether delivery evidence meets the user goal.
 
 ## ExecutorRequest
 
-One task invocation request.
+One task invocation request. Configured execution enters through
+`ExecutorManager.execute()`.
 
 - `task_id`: task being executed.
 - `prompt`: compiled prompt or command input.
@@ -112,6 +125,19 @@ Structured index of run evidence.
 - `deliverables_dir`: relative deliverables directory.
 - `final_report`: relative final report path.
 
+## ArtifactOutput
+
+Generated whole-file artifacts should use:
+
+- `artifact_protocol`: `local-engine.artifacts.v1`.
+- `artifacts`: list of typed entries.
+- `artifacts[].type`: currently `file`.
+- `artifacts[].path`: project-root-relative target path.
+- `artifacts[].content`: complete target file contents.
+
+Legacy fenced code blocks remain supported as compatibility input, not the
+preferred protocol.
+
 ## FinalReport
 
 Human-readable explanation of the run.
@@ -121,4 +147,3 @@ Human-readable explanation of the run.
 - Deliverables and artifact links.
 - Warnings, failures, needs-human items, and recovery evidence.
 - Context-quality and graph-quality evidence.
-

@@ -6,6 +6,7 @@ from typing import Dict, Iterable, Iterator, Optional
 
 import yaml
 
+from local_engine.resources import resource_directory
 from local_engine.skills.schema import SkillDefinition, SkillSchemaError
 
 
@@ -13,7 +14,7 @@ def default_skills_dir() -> Path:
     configured = os.environ.get("LOCAL_ENGINE_SKILLS_DIR")
     if configured:
         return Path(configured).expanduser()
-    return Path(__file__).resolve().parents[2] / "skills"
+    return resource_directory("skills")
 
 
 class SkillRegistry:

@@ -2,6 +2,24 @@
 
 ## Requirements
 
+- 2026-06-26 v0.3.1 runtime boundary, packaging, and executor unification:
+  - Keep Runtime/Engine as the central orchestrator, but split `Engine.run()` responsibilities into smaller pipeline components.
+  - Make `ExecutorManager` the single execution adapter entry point.
+  - Load built-in `agents`, `skills`, `intents`, and `task_templates` as package resources instead of fragile top-level paths, while preserving YAML-backed registries and overrides.
+  - Make artifact output protocol explicit and less heuristic.
+  - Add release packaging hygiene that excludes `.venv`, `.git`, `__pycache__`, `.pytest_cache`, egg-info, run outputs, and other dev/runtime trash.
+  - Split tests into fast unit tests and slow integration tests without breaking existing CLI commands.
+
+- 2026-06-26 artifact apply and delivery-status fix:
+  - `local-engine run` for BUILD-class tasks must default to plan + generate + apply + verify semantics rather than stopping at generated SIP/text artifacts.
+  - Add `local-engine plan --project <path> "<requirement>"` for plan-only behavior and `local-engine apply --project <path> --run-id <id> [--yes]` for applying artifacts from an existing run.
+  - Add an `ArtifactApplier` that reads `.local_engine/runs/<run_id>/agent_outputs/`, extracts concrete file blocks or patches, validates all paths under `project_root`, writes files, and persists `.local_engine/runs/<run_id>/apply_manifest.json`.
+  - Add `DeliveryStatus` so reports distinguish task-graph completion from whether user-visible project files were applied and verified.
+  - Final reports must show `task_graph_status`, `delivery_status`, `files_created`, `files_modified`, `files_not_applied`, `verification_status`, and `user_goal_satisfied`.
+  - If generated code artifacts exist but are not applied, final reports must mark `user_goal_satisfied: false`.
+  - Permission-request failures from the external Claude CLI must become human-actionable delivery/runtime states, not ordinary failed tasks; safe project-root writes can be approved by `--yes`.
+  - Progress output, persisted task status, and final reports should derive from the same status source to avoid contradictory `failed` versus `completed` displays.
+
 - 2026-06-26 staged refactor implementation:
   - Treat `local-engine` primarily as a local task-graph Runtime, not a multi-agent cluster.
   - Freeze P0 architecture, runtime contracts, engine baseline, and smoke paths before deep refactoring.
@@ -38,6 +56,22 @@
 - Reuse only verified task results using repository and watched-path fingerprints.
 
 ## Research Findings
+
+- v0.3.1 discovery:
+  - Built-in agents, skills, intents, and task templates were still loaded from repository-root directories via `Path(__file__).parents[2]`, while `pyproject.toml` only packaged `local_engine*` Python modules.
+  - `Engine.run()` owns registry loading, input/context setup, graph planning, scheduler callbacks, cache hashing, apply/delivery, reporting, run state, run metadata, and telemetry.
+  - `ExecutorManager` existed, but the configured runtime path still constructed `ClaudeCLIWorker` directly from `Engine._configured_worker_factory`.
+  - ArtifactApplier already supported SIP artifacts and fenced file blocks; adding `artifact_protocol: local-engine.artifacts.v1` can make typed file artifacts explicit while retaining legacy fallback extraction.
+  - Existing tests are all in one pytest bucket; `test_smoke_run.py` is the clearest slow end-to-end CLI/runtime check to mark as integration first.
+
+- Current CLI `run` defaults to `--mode plan`; `--mode apply` only approves and applies collected unified-diff patch files.
+- Existing `collect_patches` reads SIP bodies and writes `patches/*.patch`, but it ignores generated file blocks such as `### graph_utils.py` followed by fenced code.
+- `Engine.run` already centralizes the safe integration point after task execution, review, patch collection, deliverable writing, warning aggregation, and before final report rendering.
+- Existing task execution status is split between `TaskResult.status` and `TaskResult.lifecycle_status`; terminal progress uses lifecycle when present, but `_run_summary` currently reports only execution status.
+- `FailureType.PERMISSION_REQUEST` is already classified and can become `needs_human`; the remaining missing piece is delivery-level evidence when generated artifacts are not applied.
+- Implemented ArtifactApplier supports SIP artifact mappings, fenced file blocks with nearby path headings, existing `.patch` files, and newly extracted diff blocks.
+- `run` no longer prompts before classification/generation; `--yes` or `--auto-approve project` grants safe project-root writes, while missing approval for code-generation tasks becomes incomplete delivery evidence.
+- Focused fake-worker BUILD verification catches bad generated code through real `pytest`, proving static SIP parsing is not treated as delivery success.
 
 - The latest real-run failure mode is a semantic graph mismatch: algorithm repositories can be misrouted into a generic BUILD graph containing backend/frontend tasks.
 - Apply-mode worker prompts need an explicit write-permission contract because the external Claude worker can otherwise ask for permission even after the CLI approval flow.
@@ -87,11 +121,27 @@
 
 ## Technical Decisions
 
+## Current Status Audit: 2026-07-18
+
+- The project is currently at a v0.3.1 in-progress working tree on `codex/staged-refactor`: version metadata is `0.3.1`, built-in registries have moved into `local_engine/resources/`, configured execution now routes through `ExecutorManager`, and `Engine.run()` has begun shedding responsibilities into `runtime/pipeline.py`.
+- Verification during this audit passed with Python 3.11.15: full pytest suite collected 110 tests and passed, the integration marker passed separately, the non-integration suite passed separately, `git diff --check` passed, and `scripts/package_release.py` produced a clean release zip under `/tmp`.
+- The main completed capability is now a repository-aware task-graph Runtime with classification, context quality, graph quality, recovery, review/revision, task summaries, cache provenance, explicit delivery status, and resumable artifact apply.
+- SIP has evolved from a tolerant parser contract into the boundary between model output and project mutation. The current prompt contract asks workers to return `artifact_protocol: local-engine.artifacts.v1` with typed file artifacts for whole-file generation, while legacy fenced file blocks and unified diffs remain compatibility fallbacks.
+- Remaining high-priority gap: `Engine.apply_run()` computes `user_goal_satisfied` with `failed_count=0` for resumed applies, so applying artifacts from a run whose original task graph was partial or failed can report success without accounting for the original task failures.
+- Remaining delivery-evidence gap: duplicate artifact target warnings are accumulated inside `ArtifactApplier.collect_artifacts()` but are not returned into `ApplyResult`, and patch-only generated changes are not represented in `files_not_applied` when approval is missing.
+- Remaining verification gap: auto-verification is hard-coded to pytest for any project with `pyproject.toml` before considering other project-specific commands, so real-project verification needs a configured command or more precise project-type detection.
+- Documentation gap: the README run-output tree has a fenced-code formatting error around `integration_review.md`, `eval_report.md`, `memory_update.md`, `final_report.md`, and `error.log`.
+
+## Technical Decisions
+
 | Decision | Rationale |
 |----------|-----------|
 | Low-confidence non-interactive calls fail with candidates | Prevents a silent wrong graph; callers can retry with `--intent`. |
 | Only direct dependency summaries are injected | Preserves DAG causality and avoids nondeterministic context from parallel siblings. |
 | Graph errors block; output-quality issues warn | Matches the P1-Control control boundary without discarding useful worker output. |
+| Package built-in registries under `local_engine/resources` | Wheels can carry the default YAML/prompt definitions without depending on repository-root paths. |
+| Keep injected test workers as compatibility adapters | Existing tests and API callers can still pass `worker_factory`; configured production execution now goes through ExecutorManager. |
+| Prefer explicit typed artifacts, retain legacy parsing | New outputs are deterministic, while older runs and current worker output styles remain applyable. |
 
 | Decision | Rationale |
 |----------|-----------|
@@ -99,6 +149,7 @@
 | Keep graph task `skill`; add optional `agent` | Avoid a breaking schema change while separating selected skill from the agent that executes it. |
 | Keep legacy task graph skill aliases available | Existing intent graphs and their tests remain valid while direct `--skill` runs use the new skill registry. |
 | Preserve `TaskResult.status` for existing API users; add lifecycle and review fields | The new review state machine is visible without breaking callers expecting `completed` / `failed_but_continued`. |
+| Keep `Engine.run` defaulting to plan for API compatibility while CLI `run` defaults to apply delivery | Existing programmatic callers and tests remain stable, while the user-facing command now matches expected run semantics. |
 
 ## Issues Encountered
 

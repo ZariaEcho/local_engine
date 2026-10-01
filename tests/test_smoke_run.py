@@ -1,10 +1,14 @@
 import json
 import sys
 
+import pytest
 from typer.testing import CliRunner
 
 from local_engine.cli import app
 from local_engine.runtime.engine import Engine
+
+
+pytestmark = pytest.mark.integration
 
 
 def test_cli_smoke_run_creates_the_complete_run_layout(tmp_path, monkeypatch):

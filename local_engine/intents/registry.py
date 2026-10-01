@@ -6,13 +6,14 @@ from typing import Dict, Iterable, Iterator, Optional
 
 import yaml
 
+from local_engine.resources import resource_directory
 from local_engine.intents.schema import IntentDefinition, IntentSchemaError
 from local_engine.intents.classification import ClassificationCandidate, ClassificationResult
 
 
 def default_intents_dir() -> Path:
     configured = os.environ.get("LOCAL_ENGINE_INTENTS_DIR")
-    return Path(configured).expanduser() if configured else Path(__file__).resolve().parents[2] / "intents"
+    return Path(configured).expanduser() if configured else resource_directory("intents")
 
 
 class IntentRegistry:

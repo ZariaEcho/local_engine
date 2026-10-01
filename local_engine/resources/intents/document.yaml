@@ -1,0 +1,5 @@
+name: DOCUMENT
+keywords: [文档, documentation, document, readme]
+required_tasks: [document_scan, documentation]
+optional_tasks: [integration_review, memory_update]
+context_sensitive: true

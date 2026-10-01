@@ -19,6 +19,7 @@ SIP_DEFAULTS = {
     "body": "",
     "warnings": [],
     "failure_type": "",
+    "artifact_protocol": "",
 }
 
 
@@ -109,6 +110,7 @@ def make_error_sip(skill: str, task_id: str, message: str) -> Dict[str, Any]:
         "body": message or "",
         "warnings": [],
         "failure_type": FailureType.UNKNOWN.value,
+        "artifact_protocol": "",
     }
 
 

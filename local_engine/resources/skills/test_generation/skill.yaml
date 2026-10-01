@@ -1,0 +1,9 @@
+name: test_generation
+task_type: test_generation
+description: Generate focused tests or regression coverage for implementation tasks.
+inputs: [repo_context, user_requirement, dependency_outputs]
+outputs: [patch, test_plan]
+default_agent: tester
+review_required: false
+cache: {watched_paths: ['tests/**', '**/test_*.py', '**/*.test.ts', '**/*.spec.ts', pyproject.toml, package.json]}
+

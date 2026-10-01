@@ -200,6 +200,76 @@ Complete
 - [x] Record final verification.
 - **Status:** complete
 
+### Phase 29: Artifact apply and delivery-status discovery
+
+- [x] Inspect current run/apply/report/status paths and generated agent output formats.
+- [x] Identify the smallest compatibility-safe place to introduce real artifact application.
+- [x] Record current behavior and constraints.
+- **Status:** complete
+
+### Phase 30: ArtifactApplier and manifest
+
+- [x] Add a runtime ArtifactApplier that extracts file artifacts from run outputs.
+- [x] Validate project-root-contained paths, support dry-run, and write `apply_manifest.json`.
+- [x] Preserve generated artifacts when apply cannot proceed.
+- **Status:** complete
+
+### Phase 31: CLI semantics and delivery status
+
+- [x] Add `plan`, `apply`, and `run --plan-only/--yes` semantics.
+- [x] Add DeliveryStatus evidence and final-report fields for applied files and user-goal satisfaction.
+- [x] Keep progress, task status, and final reports on a single status source.
+- **Status:** complete
+
+### Phase 32: Permission and resume behavior
+
+- [x] Route permission-request failures to `needs_human`/blocked delivery outcomes when not approved.
+- [x] Allow safe project-root apply with `--yes`.
+- [x] Support resuming apply from a stored `run_id`.
+- **Status:** complete
+
+### Phase 33: Regression and smoke verification
+
+- [x] Add focused tests for artifact extraction, apply command, delivery reports, and status consistency.
+- [x] Run focused tests and the full regression suite.
+- [x] Smoke-check the graph BUILD flow through a deterministic fake worker.
+- **Status:** complete
+
+### Phase 34: v0.3.1 refactor discovery
+
+- [x] Inspect current packaging, resource loading, Engine.run pipeline, executor manager, artifact parsing, and test layout.
+- [x] Identify compatibility constraints for all existing CLI commands.
+- [x] Record findings.
+- **Status:** complete
+
+### Phase 35: Packaging hygiene and package resources
+
+- [x] Add release packaging script or ignore manifest that excludes dev/runtime trash.
+- [x] Move or expose agents, skills, intents, and task templates as package resources with project override compatibility.
+- [x] Add tests for resource discovery and clean release packaging.
+- **Status:** complete
+
+### Phase 36: Executor and runtime pipeline boundaries
+
+- [x] Make ExecutorManager the single execution adapter entry point.
+- [x] Extract smaller Engine.run pipeline components while preserving Runtime orchestration.
+- [x] Keep existing command behavior and reports stable.
+- **Status:** complete
+
+### Phase 37: Explicit artifact protocol and test tiering
+
+- [x] Replace artifact-output heuristics with an explicit protocol while retaining legacy fallback parsing.
+- [x] Split fast unit tests from slow integration tests with markers/config and documentation.
+- [x] Verify focused and full test suites.
+- **Status:** complete
+
+### Phase 38: Current status and SIP audit
+
+- [x] Reconcile root planning files with the older scoped MVP/P0 plan.
+- [x] Review current dirty worktree, v0.3.1 implementation scope, SIP artifact protocol, delivery/apply behavior, and test coverage.
+- [x] Verify the current regression, integration split, release packaging, and whitespace checks.
+- **Status:** complete
+
 ## Decisions Made
 
 | Decision | Rationale |
@@ -209,6 +279,8 @@ Complete
 | Migrate all eight built-in intents to YAML | Keeps current behavior while removing the hard-coded intent-to-graph map. |
 | Use Skill watched-path globs for cache invalidation | Makes unrelated-file reuse deterministic and auditable. |
 | Use deterministic failure classification with optional explicit worker hints | Avoids an extra model call and keeps retry behavior bounded. |
+| Treat delivery as a separate status from task execution | A task can generate valid SIP text while still failing to write or verify project files. |
+| Preserve CLI behavior during v0.3.1 refactor | The refactor must reduce runtime concentration without changing user-facing command semantics. |
 
 ## Errors Encountered
 
@@ -222,5 +294,6 @@ Complete
 | Legacy YAML timestamps deserialize as `datetime` and are not directly JSON serializable | 1 | Normalize imported timestamp values to strings before writing the JSON index. |
 | Quality test inspected a review prompt that reused the task ID and overwrote the worker's debug map | 1 | Assert against the canonical persisted execution prompt instead. |
 | Legacy SIP contract tests required an exact key set | 1 | Update the contract expectation for the approved additive `warnings` and `failure_type` fields. |
+| Focused tests accidentally ran under system Python 3.9 | 1 | Reran with `./.venv/bin/python`, matching the project `>=3.11` requirement. |
 | `pytest` command is unavailable on PATH | 1 | Check available Python interpreters and invoke pytest as a module where installed. |
 | P1-Control classification contract imported through `planner.__init__` | 1 | Move shared result/error types under `intents/` to remove the Registry ↔ Planner import cycle. |

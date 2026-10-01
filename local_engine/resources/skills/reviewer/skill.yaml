@@ -1,0 +1,8 @@
+name: reviewer
+task_type: scan
+description: Inspect repository state and provide a grounded technical review.
+inputs: [repo_context, user_requirement]
+outputs: [review]
+default_agent: reviewer
+priority: 100
+cache: {watched_paths: ['**/*.py', '**/*.ts', '**/*.tsx', '**/*.js', '**/*.go', '**/*.rs', '**/*.java']}

@@ -3,7 +3,7 @@
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Protocol
+from typing import Any, Callable, Dict, Iterable, Optional, Protocol
 
 from local_engine.kernel.sip_parser import parse_sip
 from local_engine.kernel.schemas import WorkerResult
@@ -35,6 +35,18 @@ def _worker_result_to_executor_result(task_id: str, result: WorkerResult) -> Exe
         raw_output=result.raw or "",
         parsed_output=parsed,
         error=result.error_message,
+    )
+
+
+def _executor_result_to_worker_result(result: ExecutorResult) -> WorkerResult:
+    failed = result.status not in {"completed", "ok", "success"}
+    raw = result.raw_output or result.stdout or result.stderr or ""
+    failure_type = "timeout" if result.status == "timeout" else ""
+    return WorkerResult(
+        raw=raw,
+        failed=failed,
+        error_message=result.error if failed else "",
+        failure_type=failure_type,
     )
 
 
@@ -121,6 +133,28 @@ class MockExecutor:
         return ExecutorHealth(self.executor_type, "ok", "deterministic mock executor")
 
 
+class ExecutorWorkerAdapter:
+    """Compatibility worker whose only execution path is ExecutorManager."""
+
+    def __init__(self, manager: "ExecutorManager", executor_id: str, timeout_seconds: int = 300) -> None:
+        self.manager = manager
+        self.executor_id = executor_id
+        self.timeout_seconds = int(timeout_seconds)
+
+    def run(self, prompt: str, task: Any, project_root: Path) -> WorkerResult:
+        task_mapping = dict(task or {})
+        task_id = str(task_mapping.get("id") or task_mapping.get("task_id") or "task")
+        request = ExecutorRequest(
+            task_id=task_id,
+            prompt=prompt,
+            project_root=project_root,
+            run_dir=Path(task_mapping.get("run_dir") or project_root),
+            timeout_seconds=self.timeout_seconds,
+            metadata={"task": task_mapping},
+        )
+        return _executor_result_to_worker_result(self.manager.execute(self.executor_id, request))
+
+
 class ExecutorManager:
     """Create executors from runtime configuration."""
 
@@ -145,7 +179,7 @@ class ExecutorManager:
             return [command]
         return [str(value) for value in command or [executor_id]]
 
-    def create(self, executor_id: str):
+    def create(self, executor_id: str) -> BaseExecutor:
         if executor_id == "mock":
             return MockExecutor()
         if executor_id == "python":
@@ -154,3 +188,20 @@ class ExecutorManager:
         if executor_id == "shell":
             return ShellExecutor(command)
         return ClaudeExecutor(command=command, timeout_seconds=int(self.config.get("timeout_seconds", 300)))
+
+    def execute(self, executor_id: str, request: ExecutorRequest) -> ExecutorResult:
+        """Run one executor request through the configured adapter."""
+        return self.create(executor_id).run(request)
+
+    def healthcheck(self, executor_id: str) -> ExecutorHealth:
+        return self.create(executor_id).healthcheck()
+
+    def worker_factory(self, default_executor: Optional[str] = None) -> Callable[[str], ExecutorWorkerAdapter]:
+        execution = self.config.get("execution", {}) if isinstance(self.config.get("execution"), dict) else {}
+        configured_default = default_executor or str(execution.get("default_executor") or "claude")
+        timeout_seconds = int(self.config.get("timeout_seconds", 300))
+
+        def factory(model: str = "") -> ExecutorWorkerAdapter:
+            return ExecutorWorkerAdapter(self, model or configured_default, timeout_seconds)
+
+        return factory

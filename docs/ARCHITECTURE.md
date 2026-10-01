@@ -32,7 +32,8 @@ Runtime:
 - Creates and resumes runs.
 - Owns run state, event emission, scheduling, recovery, quality gates, and final
   run status.
-- Coordinates executors without leaking graph/report responsibilities into them.
+- Coordinates executors through `ExecutorManager` without leaking graph/report
+  responsibilities into them.
 
 Executor:
 
@@ -52,6 +53,8 @@ Artifact:
 
 - Persists prompts, raw outputs, parsed outputs, errors, quality records,
   delivery documents, and state snapshots.
+- Applies explicit `local-engine.artifacts.v1` file artifacts and legacy
+  compatibility patches/file blocks only after project-root approval.
 
 Report:
 
@@ -80,3 +83,8 @@ New runs are written under:
 Legacy reports under `.local_engine/task_reports/<run_id>/` remain readable for
 compatibility, but new run creation should use `runs/<run_id>/`.
 
+## Packaged Runtime Registries
+
+Built-in agents, skills, intents, and task templates are packaged under
+`local_engine/resources/`. Environment overrides can still replace each registry
+for local development.

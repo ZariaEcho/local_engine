@@ -1,5 +1,89 @@
 # Progress Log
 
+## Session: 2026-07-18 — Current status and SIP audit
+
+### Phase 38: Current status and SIP audit
+
+- **Status:** complete
+- Actions taken:
+  - Restored root planning context and compared it with the older scoped MVP/P0 plan under `.planning/2026-06-22-local-engine-mvp-refactor`.
+  - Inspected the dirty worktree, README, pyproject metadata, v0.3.1 runtime changes, packaged resources, ExecutorManager routing, `ArtifactApplier`, SIP parser/prompt contract, run delivery status, apply/resume behavior, and artifact tests.
+  - Verified current baseline with Python 3.11.15: `local-engine --version` reports `0.3.1`; full pytest suite passes; integration and non-integration splits pass; release zip generation passes; `git diff --check` passes.
+  - Recorded the main current gaps: resumed apply can mark user goals satisfied without accounting for original task failures, duplicate artifact warnings are not surfaced, patch-only not-applied file evidence is incomplete, auto-verification is hard-coded, and the README run-output block has a formatting error.
+- Files modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+## Session: 2026-06-26 — v0.3.1 Runtime boundary and packaging refactor
+
+### Phase 34: Discovery
+
+- **Status:** complete
+- Actions taken:
+  - Restored existing planning-with-files context.
+  - Added Phases 34-37 for discovery, packaging/resources, executor/runtime boundaries, artifact protocol, and test tiering.
+  - Inspected packaging metadata, `Engine.run()`, ExecutorManager, registries, scheduler, artifact applier, prompt compiler, CLI, and relevant tests.
+  - Confirmed built-in registries were repository-root paths and configured execution bypassed ExecutorManager.
+- Files created/modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+### Phase 35-37: Implementation and verification
+
+- **Status:** complete
+- Actions taken:
+  - Copied built-in registry definitions into `local_engine/resources/` and changed registry defaults to packaged resources while preserving environment overrides.
+  - Added `scripts/package_release.py` with exclusions for VCS metadata, virtualenvs, caches, egg-info, build/runtime output, planning scratch files, and old top-level registry folders.
+  - Added `local_engine/runtime/pipeline.py` and moved registry loading, run metadata construction, definition hashing, and result summarization out of `Engine.run()`.
+  - Routed configured worker creation through `ExecutorManager.worker_factory()` and `ExecutorManager.execute()`.
+  - Added explicit `artifact_protocol: local-engine.artifacts.v1` support while retaining legacy fenced-block parsing.
+  - Added pytest markers for fast vs integration tests and marked the CLI smoke test as integration.
+- Files created/modified:
+  - `local_engine/resources/`
+  - `local_engine/runtime/pipeline.py`
+  - `scripts/package_release.py`
+  - Runtime registry, executor, engine, parser, prompt, docs, and test files.
+  - Verification passed: focused packaging/artifact/executor/SIP tests, `pytest -m "not integration"`, `pytest -m integration`, full `pytest`, release zip smoke, and `git diff --check`.
+
+## Session: 2026-06-26 — Artifact apply and delivery-status fix
+
+### Phase 29: Artifact apply and delivery-status discovery
+
+- **Status:** complete
+- Actions taken:
+  - Read the attached failure analysis and requested implementation scope.
+  - Restored planning-with-files context from `task_plan.md`, `findings.md`, and `progress.md`.
+  - Added Phases 29-33 for ArtifactApplier, CLI semantics, DeliveryStatus, permission/resume behavior, and regression verification.
+  - Inspected CLI, Engine, report builder, run store/index/state, retry classification, scheduler persistence, patch collection, safety guards, task templates, skill prompts, and existing MVP/report tests.
+  - Confirmed the current implementation only applies unified diff patches in `mode=apply`; generated file-code blocks in SIP bodies are preserved as text and never written to the project.
+
+### Phase 30: ArtifactApplier and manifest
+
+- **Status:** complete
+- Actions taken:
+  - Chosen approach: add an ArtifactApplier under `local_engine/runtime/` and wire it into the existing post-generation apply point before final report rendering.
+  - Added `local_engine/runtime/artifact_applier.py` with file-block extraction, patch collection/application, project-root path validation, explicit dry-run, manifest persistence, and optional verification.
+  - Added `DeliveryStatus` and `VerificationStatus` to record whether generated artifacts were only produced, applied, verified, failed, or need human approval.
+
+### Phase 31-32: CLI delivery semantics and resume apply
+
+- **Status:** complete
+- Actions taken:
+  - Added `local-engine plan`, `local-engine apply --run-id`, `run --plan-only`, `run --yes`, and `run --auto-approve project`.
+  - Changed CLI `run` to default to apply delivery semantics while preserving `Engine.run` and `--mode plan/apply` compatibility.
+  - Extended final reports, run metadata, run state, CLI summary, and `status` output with `task_graph_status`, `delivery_status`, `files_created`, `files_modified`, `files_not_applied`, `verification_status`, and `user_goal_satisfied`.
+  - Made missing approval produce explicit incomplete delivery rather than blocking non-code tasks with an early prompt.
+
+### Phase 33: Regression and smoke verification
+
+- **Status:** complete
+- Actions taken:
+  - Added `tests/test_artifact_applier.py` covering file-block extraction, manifest writing, verified BUILD apply, and `apply --run-id` resume from plan-only output.
+  - Updated README and refactor baseline documentation for the new run/plan/apply semantics.
+  - Verification passed: focused artifact/MVP/report tests, full regression suite (`105 passed`), and `git diff --check`.
+
 ## Session: 2026-06-26 — Staged Runtime refactor implementation
 
 ### Phase 24: P0 architecture and contract baseline
@@ -126,6 +210,12 @@
 | Retry/fallback | Simulated Claude failure | Retries then Codex fallback with evidence | Passed | ✓ |
 | Review loop | Explicit `VERDICT: FAIL` then pass | Revision and second review created | Passed | ✓ |
 | Full regression suite | `python3 -m pytest -q` | All tests pass | 59 passed | ✓ |
+| v0.3.1 focused tests | `./.venv/bin/python -m pytest tests/test_packaging_and_resources.py tests/test_artifact_applier.py tests/test_staged_refactor.py tests/test_sip_parser.py -q` | New packaging/artifact/executor/SIP coverage passes | 29 passed | ✓ |
+| v0.3.1 fast split | `./.venv/bin/python -m pytest -m "not integration" -q` | Fast tests pass without integration smoke | Passed | ✓ |
+| v0.3.1 integration split | `./.venv/bin/python -m pytest -m integration -q` | Integration smoke passes | 1 passed | ✓ |
+| v0.3.1 full regression | `./.venv/bin/python -m pytest -q` | Full suite passes | Passed | ✓ |
+| v0.3.1 release zip smoke | `./.venv/bin/python scripts/package_release.py --output /tmp/local-engine-test-release.zip` | Zip excludes dev/runtime trash and ships package resources | Passed | ✓ |
+| v0.3.1 whitespace | `git diff --check` | No whitespace errors | Passed | ✓ |
 
 ## Error Log
 
@@ -134,6 +224,7 @@
 | 2026-06-23 | `python: command not found` | 1 | Use `python3` for verification. |
 | 2026-06-23 | Primary model routed to installed `claude` in a CLI test | 1 | Restored `claude_command` as the primary command override. |
 | 2026-06-23 | Retry-status callback missing in threaded scheduler execution | 1 | Added callback parameter and verified recovery artifacts again. |
+| 2026-06-26 | Focused tests used system Python 3.9 and failed on project 3.11 syntax/`tomllib` | 1 | Reran all checks with `./.venv/bin/python`. |
 
 ## Session: 2026-06-23 — P1 Revised
 

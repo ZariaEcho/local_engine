@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-engine"
-version = "0.3.0"
+version = "0.3.1"
 description = "A local repository-aware Context Engine powered by Claude CLI workers."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,19 @@ local-engine = "local_engine.cli:app"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "unit: fast tests that avoid subprocess-heavy CLI runs",
+  "integration: slower end-to-end CLI/runtime checks",
+]
 
 [tool.setuptools.packages.find]
 include = ["local_engine*"]
+
+[tool.setuptools.package-data]
+"local_engine.resources" = [
+  "agents/*.yaml",
+  "intents/*.yaml",
+  "task_templates/*.yaml",
+  "skills/*/*.yaml",
+  "skills/*/*.md",
+]

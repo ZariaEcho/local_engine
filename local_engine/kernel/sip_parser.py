@@ -82,6 +82,7 @@ def _normalise(candidate: Dict[str, Any], raw: str, skill: str, task_id: str) ->
         "body": _as_body(candidate.get("body"), raw),
         "warnings": _as_list(candidate.get("warnings")),
         "failure_type": str(candidate.get("failure_type") or ""),
+        "artifact_protocol": str(candidate.get("artifact_protocol") or ""),
     }
 
 
@@ -102,6 +103,7 @@ def _empty_error(skill: str, task_id: str) -> Dict[str, Any]:
         "body": "",
         "warnings": [],
         "failure_type": "format",
+        "artifact_protocol": "",
     }
 
 
@@ -122,6 +124,7 @@ def _unstructured(raw: str, skill: str, task_id: str) -> Dict[str, Any]:
         "body": raw,
         "warnings": [],
         "failure_type": "format",
+        "artifact_protocol": "",
     }
 
 

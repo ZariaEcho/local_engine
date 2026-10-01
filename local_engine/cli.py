@@ -18,6 +18,8 @@ from local_engine.artifacts.recover_report import detect_status, recover_report
 from local_engine.context.context_builder import list_modules
 from local_engine.runtime.doctor import run_doctor
 from local_engine.runtime.engine import Engine
+from local_engine.runtime.contracts import RuntimeInput
+from local_engine.runtime.runtime import Runtime
 from local_engine.runtime.reporting import resolve_report
 from local_engine.runtime.run_index import RunIndex
 from local_engine.runtime.run_store import RunStore
@@ -450,6 +452,11 @@ def status(
     typer.echo("phase: {0}".format(state["phase"]))
     typer.echo("run_dir: {0}".format(state["run_dir"]))
     typer.echo("tasks: {0} completed, {1} failed, {2} total".format(state["completed_count"], state["failed_count"], state["task_count"]))
+    delivery = state.get("delivery") if isinstance(state.get("delivery"), dict) else {}
+    if delivery:
+        typer.echo("delivery_status: {0}".format(delivery.get("delivery_status", "")))
+        typer.echo("verification_status: {0}".format(delivery.get("verification_status", "")))
+        typer.echo("user_goal_satisfied: {0}".format("true" if delivery.get("user_goal_satisfied") is True else "false"))
     if state.get("final_report"):
         typer.echo("final_report: {0}".format(state["final_report"]))
 
@@ -472,6 +479,70 @@ def resume(
     typer.echo("run_dir: {0}".format(state["run_dir"]))
     if state.get("final_report"):
         typer.echo("final_report: {0}".format(state["final_report"]))
+    delivery = state.get("delivery") if isinstance(state.get("delivery"), dict) else {}
+    if delivery:
+        typer.echo("delivery_status: {0}".format(delivery.get("delivery_status", "")))
+
+
+@app.command(name="plan")
+def plan_command(
+    task: str = typer.Argument("", help="Text requirement (optional when --input is supplied)."),
+    project: Path = typer.Option(..., "--project", help="Initialized project root."),
+    input: Optional[Path] = typer.Option(None, "--input", help="Markdown or TXT requirement file."),
+    workers: Optional[int] = typer.Option(None, "--workers", min=1, help="Maximum concurrent workers."),
+    skill: Optional[str] = typer.Option(None, "--skill", help="Run one reusable skill instead of selecting an intent graph."),
+    intent: Optional[str] = typer.Option(None, "--intent", help="Explicit intent override when classification is uncertain."),
+) -> None:
+    """Generate a task graph and artifacts without writing generated files to the project."""
+    try:
+        engine = Engine()
+        resolved_intent = _resolve_cli_intent(engine, task, input, intent, skill)
+        with RunProgress() as progress:
+            outcome = Runtime().execute(
+                RuntimeInput(
+                    project_root=project,
+                    raw_input=task,
+                    input_file=input,
+                    mode="plan",
+                    workers=workers,
+                    apply_approved=False,
+                    event_callback=progress.handle,
+                    skill=skill,
+                    intent_override=resolved_intent,
+                )
+            )
+    except typer.Exit:
+        raise
+    except (FileNotFoundError, ValueError, KeyError, PermissionError, RuntimeError) as exc:
+        typer.echo("Error: {0}".format(exc), err=True)
+        raise typer.Exit(code=1)
+    typer.echo(_run_summary(outcome))
+    if outcome.has_failures:
+        raise typer.Exit(code=1)
+
+
+@app.command(name="apply")
+def apply_command(
+    project: Path = typer.Option(..., "--project", help="Initialized project root."),
+    run_id: str = typer.Option(..., "--run-id", help="Existing project-local run ID."),
+    yes: bool = typer.Option(False, "--yes", help="Approve safe writes inside the project root."),
+    no_verify: bool = typer.Option(False, "--no-verify", help="Skip automatic verification after applying artifacts."),
+) -> None:
+    """Apply generated file artifacts from an existing run."""
+    approved = yes
+    if not approved:
+        approved = typer.confirm("Apply generated artifacts inside the project root?")
+        if not approved:
+            typer.echo("Apply cancelled; generated artifacts were not written.")
+            raise typer.Exit(code=1)
+    try:
+        result = Runtime().apply_run(project, run_id, apply_approved=approved, verify=not no_verify)
+    except (FileNotFoundError, ValueError, PermissionError, RuntimeError) as exc:
+        typer.echo("Error: {0}".format(exc), err=True)
+        raise typer.Exit(code=1)
+    typer.echo(_apply_summary(result))
+    if result.delivery_status in {"failed", "needs_human", "artifacts_generated"} and not result.user_goal_satisfied:
+        raise typer.Exit(code=1)
 
 
 def _record_report_dir(record: Dict[str, Any]) -> Path:
@@ -504,36 +575,42 @@ def run(
     task: str = typer.Argument("", help="Text requirement (optional when --input is supplied)."),
     project: Path = typer.Option(..., "--project", help="Initialized project root."),
     input: Optional[Path] = typer.Option(None, "--input", help="Markdown or TXT requirement file."),
-    mode: str = typer.Option("plan", "--mode", help="plan (default) or apply."),
+    mode: Optional[str] = typer.Option(None, "--mode", help="Compatibility option: plan or apply."),
+    plan_only: bool = typer.Option(False, "--plan-only", help="Only generate plan/artifacts; do not write generated files."),
     workers: Optional[int] = typer.Option(None, "--workers", min=1, help="Maximum concurrent workers."),
     skill: Optional[str] = typer.Option(None, "--skill", help="Run one reusable skill instead of selecting an intent graph."),
     intent: Optional[str] = typer.Option(None, "--intent", help="Explicit intent override when classification is uncertain."),
-    yes: bool = typer.Option(False, "--yes", help="Approve collected patches in apply mode."),
+    yes: bool = typer.Option(False, "--yes", help="Approve generated artifacts in apply mode."),
+    auto_approve: Optional[str] = typer.Option(None, "--auto-approve", help="Auto-approve safe project-root writes when set to `project`."),
 ) -> None:
-    """Classify, contextualize, and execute an intent-appropriate task graph."""
-    if mode not in {"plan", "apply"}:
+    """Classify, contextualize, apply generated artifacts, and verify when possible."""
+    if mode is not None and mode not in {"plan", "apply"}:
         typer.echo("Error: --mode must be plan or apply", err=True)
         raise typer.Exit(code=1)
-    approved = yes
-    if mode == "apply" and not approved:
-        approved = typer.confirm("Apply patches generated by this run?")
-        if not approved:
-            typer.echo("Apply mode cancelled; no patches were applied.")
-            raise typer.Exit(code=1)
+    if plan_only and mode == "apply":
+        typer.echo("Error: --plan-only cannot be combined with --mode apply", err=True)
+        raise typer.Exit(code=1)
+    selected_mode = "plan" if plan_only else (mode or "apply")
+    approved = yes or auto_approve == "project"
+    if auto_approve not in {None, "project"}:
+        typer.echo("Error: --auto-approve only supports `project`", err=True)
+        raise typer.Exit(code=1)
     try:
         engine = Engine()
         resolved_intent = _resolve_cli_intent(engine, task, input, intent, skill)
         with RunProgress() as progress:
-            outcome = engine.run(
-                project,
-                task,
-                input,
-                mode,
-                workers,
-                apply_approved=approved,
-                event_callback=progress.handle,
-                skill=skill,
-                intent_override=resolved_intent,
+            outcome = Runtime().execute(
+                RuntimeInput(
+                    project_root=project,
+                    raw_input=task,
+                    input_file=input,
+                    mode=selected_mode,
+                    workers=workers,
+                    apply_approved=approved,
+                    event_callback=progress.handle,
+                    skill=skill,
+                    intent_override=resolved_intent,
+                )
             )
     except typer.Exit:
         raise
@@ -602,15 +679,45 @@ def _duration(seconds: float) -> str:
 
 def _run_summary(outcome) -> str:
     lines = [
-        "Run finished",
+        "Run finished" if outcome.user_goal_satisfied else "Run finished with incomplete delivery",
         "run_id: {0}".format(outcome.run_id),
         "report_dir: {0}".format(outcome.report_dir),
         "final_report: {0}".format(outcome.final_report),
+        "task_graph_status: {0}".format(getattr(outcome, "task_graph_status", "")),
+        "delivery_status: {0}".format(getattr(outcome, "delivery_status", "")),
+        "verification_status: {0}".format(getattr(outcome, "verification_status", "")),
+        "user_goal_satisfied: {0}".format("true" if getattr(outcome, "user_goal_satisfied", False) else "false"),
+        "files_created: {0}".format(", ".join(getattr(outcome, "files_created", []) or []) or "None"),
+        "files_modified: {0}".format(", ".join(getattr(outcome, "files_modified", []) or []) or "None"),
+        "files_not_applied: {0}".format(", ".join(getattr(outcome, "files_not_applied", []) or []) or "None"),
         "task_status:",
     ]
-    lines.extend("- {0}: {1}".format(task_id, status) for task_id, status in outcome.task_statuses.items())
+    lifecycle = getattr(outcome, "lifecycle_statuses", {}) or {}
+    lines.extend(
+        "- {0}: {1}".format(task_id, lifecycle.get(task_id, status))
+        for task_id, status in outcome.task_statuses.items()
+    )
     if outcome.error_log:
         lines.append("error_log: {0}".format(outcome.error_log))
+    return "\n".join(lines)
+
+
+def _apply_summary(result) -> str:
+    lines = [
+        "Apply finished" if result.user_goal_satisfied else "Apply finished with incomplete delivery",
+        "run_id: {0}".format(result.run_id),
+        "delivery_status: {0}".format(result.delivery_status),
+        "verification_status: {0}".format(result.verification_status),
+        "user_goal_satisfied: {0}".format("true" if result.user_goal_satisfied else "false"),
+        "manifest: {0}".format(result.manifest_path),
+        "files_created: {0}".format(", ".join(result.files_created) or "None"),
+        "files_modified: {0}".format(", ".join(result.files_modified) or "None"),
+        "files_not_applied: {0}".format(", ".join(result.files_not_applied) or "None"),
+    ]
+    if result.errors:
+        lines.append("errors: {0}".format("; ".join(result.errors)))
+    if result.warnings:
+        lines.append("warnings: {0}".format("; ".join(result.warnings)))
     return "\n".join(lines)
 
 

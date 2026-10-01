@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Refactored runtime execution boundaries and packaged built-in registries as
+  package resources.
+- Added release zip packaging hygiene and explicit artifact protocol support.
+- Split fast unit and slow integration test workflows.
+
 ## 0.3.0
 
 - Prepared staged Runtime refactor documentation.
@@ -14,4 +21,3 @@
 ## 0.1.0
 
 - Runtime v1 kernel baseline.
-

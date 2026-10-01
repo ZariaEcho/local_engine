@@ -3,9 +3,19 @@
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from local_engine.runtime.state import load_state, utc_now, write_state
+
+
+def emit_optional(callback: Optional[Callable[[str, Dict[str, Any]], None]], event: str, payload: Dict[str, Any]) -> None:
+    """Notify a terminal observer without letting UI failures abort the run."""
+    if callback is None:
+        return
+    try:
+        callback(event, payload)
+    except Exception:
+        return
 
 
 SUPPORTED_EVENTS = {

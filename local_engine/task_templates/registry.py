@@ -6,12 +6,13 @@ from typing import Dict, Iterable, Iterator, Optional
 
 import yaml
 
+from local_engine.resources import resource_directory
 from local_engine.task_templates.schema import TaskTemplateDefinition, TaskTemplateSchemaError
 
 
 def default_task_templates_dir() -> Path:
     configured = os.environ.get("LOCAL_ENGINE_TASK_TEMPLATES_DIR")
-    return Path(configured).expanduser() if configured else Path(__file__).resolve().parents[2] / "task_templates"
+    return Path(configured).expanduser() if configured else resource_directory("task_templates")
 
 
 class TaskTemplateRegistry:

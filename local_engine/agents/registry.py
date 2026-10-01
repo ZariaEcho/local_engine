@@ -6,6 +6,7 @@ from typing import Dict, Iterable, Iterator, Optional
 
 import yaml
 
+from local_engine.resources import resource_directory
 from local_engine.agents.schema import AgentDefinition, AgentSchemaError
 
 
@@ -14,7 +15,7 @@ def default_agents_dir() -> Path:
     configured = os.environ.get("LOCAL_ENGINE_AGENTS_DIR")
     if configured:
         return Path(configured).expanduser()
-    return Path(__file__).resolve().parents[2] / "agents"
+    return resource_directory("agents")
 
 
 class AgentRegistry:

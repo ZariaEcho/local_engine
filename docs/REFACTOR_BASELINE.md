@@ -10,6 +10,11 @@ It coordinates request classification, graph creation, scheduling, worker
 selection, recovery, quality, review, artifact writing, durable artifact storage,
 patch application, report generation, and run-index finalization.
 
+As of v0.3.1, several calculations are delegated to
+`local_engine/runtime/pipeline.py`, built-in registries load from
+`local_engine/resources/`, and configured task execution enters through
+`ExecutorManager`.
+
 ## Current `Engine` Responsibilities
 
 - Create project-local state through `initialize`.
@@ -25,7 +30,8 @@ patch application, report generation, and run-index finalization.
 - Run quality evaluation, review, and revision before dependency release.
 - Write task summaries, context patches, quality artifacts, retry evidence, and
   review evidence.
-- Collect patches and optionally apply them in apply mode.
+- Collect generated patches/file artifacts, apply approved project-local changes,
+  and persist `apply_manifest.json`.
 - Save deliverables and durable project artifacts.
 - Generate `integration_review.md`, `eval_report.md`, `memory_update.md`,
   `error.log`, `deliverables/FINAL_DELIVERY.md`, and `final_report.md`.
@@ -53,7 +59,7 @@ The staged refactor changes new project-local run output to:
 
 Legacy `task_reports` directories remain readable.
 
-## Current Worker And Fallback Model
+## Current Executor Model
 
 The current worker interface is named `Worker` and exposes:
 
@@ -61,10 +67,9 @@ The current worker interface is named `Worker` and exposes:
 run(prompt, task, project_root) -> WorkerResult
 ```
 
-The current default config includes `claude_command`, `model_commands.codex`,
-and `execution.fallback_model: codex`. The refactor removes Codex from defaults
-and introduces executor-oriented configuration. Codex remains possible only when
-the user explicitly configures it.
+Compatibility workers remain injectable for tests and API callers. Configured
+runtime execution now uses `ExecutorManager` to adapt executor requests to the
+legacy worker shape while the scheduler contract is migrated.
 
 ## Current Recovery, Quality, And Cache
 
@@ -88,4 +93,3 @@ The required smoke path is:
 local-engine run --project <demo> "审计这个项目"
 local-engine report --latest --project <demo>
 ```
-

@@ -1,0 +1,5 @@
+name: REFACTOR
+keywords: [重构, refactor, 整理代码]
+required_tasks: [refactor_scan, refactor_plan, refactor_execute, refactor_test]
+optional_tasks: [integration_review, memory_update]
+context_sensitive: true

@@ -9,7 +9,8 @@ from local_engine.kernel.schemas import WorkerResult
 from local_engine.runtime.config import load_engine_config
 from local_engine.runtime.contracts import ExecutorRequest, ExecutorResult, RuntimeInput, RuntimeOutput
 from local_engine.runtime.engine import Engine
-from local_engine.runtime.executor_manager import MockExecutor
+from local_engine.runtime.executor_manager import ExecutorManager, MockExecutor
+from local_engine.runtime.runtime import Runtime
 
 
 class PassingWorker:
@@ -103,7 +104,7 @@ def test_new_run_dir_state_latest_status_resume_hooks_and_version(tmp_path, monk
     runner = CliRunner()
     version = runner.invoke(app, ["--version"])
     assert version.exit_code == 0
-    assert "0.3.0" in version.output
+    assert "0.3.1" in version.output
 
     status = runner.invoke(app, ["status", "--project", str(project)])
     assert status.exit_code == 0, status.output
@@ -143,7 +144,7 @@ def test_telemetry_is_default_disabled_and_sanitized_when_enabled(tmp_path, monk
     Engine().run(project, "不要采集这个原始需求", skill="audit_repo", worker_factory=lambda: PassingWorker())
     event = json.loads((project / ".local_engine" / "telemetry" / "events.jsonl").read_text(encoding="utf-8").splitlines()[-1])
 
-    assert event["local_engine_version"] == "0.3.0"
+    assert event["local_engine_version"] == "0.3.1"
     assert event["command_type"] == "run"
     forbidden = json.dumps(event, ensure_ascii=False)
     assert "不要采集这个原始需求" not in forbidden
@@ -165,3 +166,72 @@ def test_mock_executor_uses_executor_contract(tmp_path):
     assert result.status == "completed"
     assert result.raw_output
     assert executor.healthcheck().status == "ok"
+
+
+def test_executor_manager_worker_factory_is_default_execution_boundary(tmp_path):
+    manager = ExecutorManager({"execution": {"default_executor": "mock"}, "timeout_seconds": 10})
+    worker = manager.worker_factory()()
+    result = worker.run("prompt", {"id": "contract_task", "skill": "mock", "depends_on": []}, tmp_path)
+
+    assert result.failed is False
+    assert "Mock output for contract_task" in result.raw
+
+
+def test_runtime_execute_matches_engine_run_contract_fields(tmp_path, monkeypatch):
+    project = initialized_project(tmp_path, monkeypatch)
+    via_engine = Engine().run(project, "审计这个项目", worker_factory=lambda: PassingWorker())
+    via_runtime = Runtime(Engine()).execute(
+        RuntimeInput(project_root=project, raw_input="审计这个项目", worker_factory=lambda: PassingWorker())
+    )
+    runs_root = project / ".local_engine" / "runs"
+
+    assert via_engine.run_id != via_runtime.run_id
+    assert via_engine.report_dir.parent == via_runtime.report_dir.parent == runs_root
+    assert via_engine.task_statuses == via_runtime.task_statuses
+    assert via_engine.delivery_status == via_runtime.delivery_status
+    assert via_engine.user_goal_satisfied == via_runtime.user_goal_satisfied
+
+
+def test_runtime_preserves_mode_and_skill(tmp_path, monkeypatch):
+    project = initialized_project(tmp_path, monkeypatch)
+    engine = Engine()
+    classified = engine.run(project, "审计这个项目", worker_factory=lambda: PassingWorker())
+    skilled = Runtime(engine).execute(
+        RuntimeInput(
+            project_root=project,
+            raw_input="审计这个项目",
+            skill="audit_repo",
+            worker_factory=lambda: PassingWorker(),
+        )
+    )
+    apply_mode = Runtime(engine).execute(
+        RuntimeInput(
+            project_root=project,
+            raw_input="审计这个项目",
+            skill="audit_repo",
+            mode="apply",
+            worker_factory=lambda: PassingWorker(),
+        )
+    )
+    plan_prompt = next((skilled.report_dir / "prompts").glob("*.prompt.md")).read_text(encoding="utf-8")
+    apply_prompt = next((apply_mode.report_dir / "prompts").glob("*.prompt.md")).read_text(encoding="utf-8")
+    mapped = Runtime(engine).run(
+        RuntimeInput(project_root=project, raw_input="审计这个项目", worker_factory=lambda: PassingWorker())
+    )
+
+    assert set(skilled.task_statuses) != set(classified.task_statuses)
+    assert "Mode: plan" in plan_prompt
+    assert "Mode: apply" in apply_prompt
+    assert mapped.run_dir.parent == project / ".local_engine" / "runs"
+    assert mapped.task_graph_status
+    assert mapped.delivery_status
+
+
+def test_runtime_execute_without_engine_run(tmp_path, monkeypatch):
+    project = initialized_project(tmp_path, monkeypatch)
+    outcome = Runtime().execute(
+        RuntimeInput(project_root=project, raw_input="审计这个项目", worker_factory=lambda: PassingWorker())
+    )
+    assert outcome.report_dir.parent == project / ".local_engine" / "runs"
+    assert (outcome.report_dir / "task_graph.yaml").is_file()
+    assert outcome.task_statuses

@@ -109,16 +109,16 @@ def test_graph_quality_detects_missing_dependencies_and_redundancy():
 
 def test_engine_persists_and_indexes_blocked_graph_quality_failure(tmp_path, monkeypatch):
     project = initialized_project(tmp_path, monkeypatch)
-    from local_engine.runtime import engine as engine_module
+    from local_engine.runtime.phases import plan as plan_module
 
-    original_builder = engine_module.build_graph
+    original_builder = plan_module.build_graph
 
     def invalid_builder(*args, **kwargs):
         graph = original_builder(*args, **kwargs)
         next(task for task in graph["tasks"] if task["id"] == "audit_report")["depends_on"] = []
         return graph
 
-    monkeypatch.setattr(engine_module, "build_graph", invalid_builder)
+    monkeypatch.setattr(plan_module, "build_graph", invalid_builder)
     with pytest.raises(GraphQualityError):
         Engine().run(project, "审计这个项目", worker_factory=lambda: MockWorker())
 

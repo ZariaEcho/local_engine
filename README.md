@@ -45,14 +45,15 @@ local-engine --version
 
 ## Declarative runtime registries
 
-The runtime loads four independent declaration layers:
+The runtime loads four independent declaration layers from packaged built-in
+resources:
 
 - `intents/*.yaml` selects required and optional task templates.
 - `task_templates/*.yaml` defines task IDs, dependencies, output paths, constraints, and risk tags.
 - `skills/*/skill.yaml` plus `prompt.md` declares a task capability, review policy, priority, and optional cache paths.
 - `agents/*.yaml` declares which skills an executor supports and its model/retry limits.
 
-Override them with `LOCAL_ENGINE_INTENTS_DIR`, `LOCAL_ENGINE_TASK_TEMPLATES_DIR`, `LOCAL_ENGINE_SKILLS_DIR`, or `LOCAL_ENGINE_AGENTS_DIR`.
+Override them with `LOCAL_ENGINE_INTENTS_DIR`, `LOCAL_ENGINE_TASK_TEMPLATES_DIR`, `LOCAL_ENGINE_SKILLS_DIR`, or `LOCAL_ENGINE_AGENTS_DIR` when developing custom registries.
 
 ```bash
 local-engine agents list
@@ -69,12 +70,14 @@ local-engine run --project ./demo_project --skill audit_repo "审计这个项目
 
 `prompt.md` supports strict `{{ variable }}` substitutions. The runtime provides task, requirement, context, dependency, mode, and expected-output variables when it renders a skill prompt.
 
-Run a text requirement (plan mode is the default):
+Run a text requirement. `run` now executes the full delivery loop by default: plan, generate artifacts, apply approved project-root changes, and verify when a local test command is detectable.
 
 ```bash
-local-engine run --project ./demo_project "Generate an optimization plan"
-local-engine run --project ./demo_project "Generate an optimization plan" --mode plan
-local-engine run --project ./demo_project --intent PLAN "Generate an optimization plan"
+local-engine run --project ./demo_project "Implement the requested feature" --yes
+local-engine run --project ./demo_project "Implement the requested feature" --auto-approve project
+local-engine plan --project ./demo_project "Generate an optimization plan"
+local-engine run --project ./demo_project --plan-only "Generate an optimization plan"
+local-engine run --project ./demo_project --intent PLAN "Generate an optimization plan" --yes
 ```
 
 Add a Markdown or TXT input file:
@@ -89,7 +92,7 @@ Choose worker concurrency:
 local-engine run --project ./demo_project "Implement the requested feature" --workers 4
 ```
 
-Every task is shown in a Rich progress/status stream. The final terminal summary always includes the `run_id`, `report_dir`, `final_report`, and each task status. A failed Claude invocation completes the rest of the runnable graph, writes failure evidence, and makes `run` exit non-zero after the summary.
+Every task is shown in a Rich progress/status stream. The final terminal summary always includes the `run_id`, `report_dir`, `final_report`, `task_graph_status`, `delivery_status`, `verification_status`, `user_goal_satisfied`, changed files, and each lifecycle task status. A failed Claude invocation completes the rest of the runnable graph, writes failure evidence, and makes `run` exit non-zero after the summary.
 
 Recovery is selected by failure type: NETWORK reuses the original prompt, FORMAT adds a strict SIP contract, TIMEOUT compacts context and extends the timeout, LOGIC stops for human intervention, and UNKNOWN receives at most one conservative retry. NETWORK/TIMEOUT may use an explicitly configured fallback executor after their retry budget.
 
@@ -144,11 +147,13 @@ local-engine runs show 2026-06-23-001
 local-engine runs open 2026-06-23-001
 ```
 
-`--mode apply` collects all generated diffs and asks for confirmation before applying them. Use `--yes` only when approval has already been granted:
+`apply` can resume generated artifacts from an existing run. Use `--yes` only when approval has already been granted:
 
 ```bash
-local-engine run --project ./demo_project "Implement the requested feature" --mode apply --yes
+local-engine apply --project ./demo_project --run-id 2026-06-23-001 --yes
 ```
+
+`--mode plan` and `--mode apply` remain available for compatibility; prefer `plan`, `apply`, `run --plan-only`, and `run --yes` for new workflows.
 
 ## Run output
 
@@ -175,6 +180,7 @@ agent_outputs/<task_id>.md
 reviews/<task_id>.round1.md
 reviews/<task_id>.round2.md            # when a revision is required
 patches/<task_id>.patch
+apply_manifest.json
 artifacts/<task_id>.md
 artifacts/task_results.yaml
 artifacts/execution_manifest.yaml
@@ -188,6 +194,7 @@ artifacts/hooks.jsonl                  # built-in Runtime hook events
 artifacts/errors/<task_id>.json        # classified failure evidence
 artifacts/errors/<task_id>.log         # present for every worker failure
 artifacts/retries/<task_id>.json       # recovery attempt trace
+```
 integration_review.md
 eval_report.md
 memory_update.md
@@ -244,10 +251,10 @@ The run pipeline is:
 User Input → Classification Gate → Repository Scanner → Context Builder
 → Registry-composed Task Graph → Validator + Graph Quality Check → Scheduler
 → Typed Recovery → Conditional Review / Revision → Task Summary + Output Quality Gate
-→ Context Patch → Task Cache → Final Delivery
+→ Context Patch → Task Cache → Artifact Apply + Verification → Final Delivery
 ```
 
-`agent_outputs/<task_id>.md` is the readable task record; the matching `.raw.txt` and `.sip.yaml` files preserve raw and normalized evidence. `reviews/` preserves every review round, while `artifacts/review_summary.json` and `artifacts/task_results.yaml` make outcomes machine-readable. `deliverables/FINAL_DELIVERY.md` is generated for every run, including graph types whose only requested output is a patch.
+`agent_outputs/<task_id>.md` is the readable task record; the matching `.raw.txt` and `.sip.yaml` files preserve raw and normalized evidence. `reviews/` preserves every review round, while `artifacts/review_summary.json` and `artifacts/task_results.yaml` make outcomes machine-readable. `apply_manifest.json` records generated files, applied patches, created/modified paths, not-applied paths, verification status, and whether the user goal was satisfied. `deliverables/FINAL_DELIVERY.md` is generated for every run, including graph types whose only requested output is a patch.
 
 Durable curated artifacts are also stored in `<project>/.local_engine/artifacts/` under `audit/`, `plan/`, `review/`, `test/`, and `docs/`. For example, an audit run produces `deliverables/AUDIT_REPORT.md` in its run report and `.local_engine/artifacts/audit/AUDIT_REPORT.md` in project-local storage.
 
@@ -259,12 +266,52 @@ Project-local `.local_engine/cache/` contains `repo_hash.json`, `task_cache.json
 
 ## Safety boundaries
 
-- Plan mode never applies generated patches to project source.
-- Apply mode requires explicit approval.
+- Plan mode never applies generated patches or file blocks to project source.
+- Apply mode writes only after explicit approval (`--yes` or `--auto-approve project`).
 - Workers run with the target project as their current directory.
-- Patches outside the project root, `.git/` changes, file deletions, `rm -rf`, `git push`, and destructive SQL are rejected.
+- File artifacts and patches outside the project root, `.git/` changes, file deletions, `rm -rf`, `git push`, and destructive SQL are rejected.
 - The engine writes only its project-local `.local_engine/` directory and its global `~/.local_engine/` directory.
 
 ## SIP: wide input, strict internal output
 
 Claude output is never treated as trustworthy. The parser accepts direct YAML/JSON, fenced blocks, and embedded objects; malformed output enters bounded FORMAT recovery and useful remaining text is preserved as `unstructured`. SIP includes `findings`, `recommendations`, and `decisions` lists in addition to `warnings` and optional `failure_type`, allowing deterministic output quality checks and direct-dependency task-summary propagation.
+
+Generated whole-file artifacts should use the explicit artifact protocol:
+
+```yaml
+artifact_protocol: local-engine.artifacts.v1
+artifacts:
+  - type: file
+    path: relative/path/from/project/root.py
+    content: |
+      file contents here
+```
+
+Legacy fenced file blocks are still parsed as a compatibility fallback.
+
+## Release Packaging
+
+Build a clean source zip with:
+
+```bash
+python scripts/package_release.py
+```
+
+The release zip excludes `.git`, `.venv`, `__pycache__`, `.pytest_cache`,
+egg-info, build output, and `.local_engine` runtime state.
+
+## Tests
+
+Fast unit/regression tests:
+
+```bash
+PYTHONPATH=. pytest -m "not integration"
+```
+
+Slow end-to-end smoke checks:
+
+```bash
+PYTHONPATH=. pytest -m integration
+```
+
+The full suite still runs with `PYTHONPATH=. pytest`.

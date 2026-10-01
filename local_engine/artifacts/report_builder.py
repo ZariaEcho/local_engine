@@ -16,6 +16,7 @@ def build_final_report(
     deliverables: Optional[Iterable[Path]] = None,
     error_log: Optional[Path] = None,
     context_quality: Optional[Dict] = None,
+    delivery: Optional[Dict] = None,
 ) -> str:
     task_lines = []
     unresolved_lines = []
@@ -49,6 +50,7 @@ def build_final_report(
     metadata = graph.get("metadata", {}) if isinstance(graph.get("metadata"), dict) else {}
     classification = metadata.get("classification", {}) if isinstance(metadata.get("classification"), dict) else {}
     context_quality = context_quality if isinstance(context_quality, dict) else {}
+    delivery = delivery if isinstance(delivery, dict) else {}
     errors = [
         (task_id, result)
         for task_id, result in results.items()
@@ -94,6 +96,8 @@ Planner confidence: {planner_confidence}
 - Dependency confidence: {dependency_confidence}
 - Evidence: `artifacts/context_quality.json` and `artifacts/context_quality.md`
 
+{delivery_section}
+
 ## Task Graph Overview
 {count} tasks; independent tasks were scheduled in parallel where worker capacity allowed.
 
@@ -128,8 +132,7 @@ Planner confidence: {planner_confidence}
 ## Next Steps
 - Review `integration_review.md` and the graph-planning evidence in `internal/`.
 - Review user-facing items in `deliverables/` before sharing them.
-- Validate generated patches against the project test suite before applying them.
-- Re-run in apply mode only after approving the collected patch set.
+- For unapplied generated files, run `local-engine apply --run-id {run_id} --project <path> --yes` after review.
 """.format(
         run_id=run_id,
         summary=graph["requirement"]["raw_summary"],
@@ -142,6 +145,7 @@ Planner confidence: {planner_confidence}
         context_complete=("yes" if context_quality.get("complete") is True else "no") if context_quality else "not recorded",
         language_confidence=context_quality.get("language_confidence", "not recorded"),
         dependency_confidence=context_quality.get("dependency_confidence", "not recorded"),
+        delivery_section=render_delivery_section(delivery),
         count=len(graph["tasks"]),
         task_lines="\n".join(task_lines),
         unresolved_issues="\n".join(unresolved_lines) or "- None",
@@ -151,3 +155,51 @@ Planner confidence: {planner_confidence}
         warning_lines="\n".join(warning_lines),
         errors="\n".join(error_lines),
     )
+
+
+def render_delivery_section(delivery: Dict) -> str:
+    """Render delivery/apply evidence in a stable, machine-searchable shape."""
+    if not isinstance(delivery, dict):
+        delivery = {}
+    files_created = _list_lines(delivery.get("files_created"))
+    files_modified = _list_lines(delivery.get("files_modified"))
+    files_not_applied = _list_lines(delivery.get("files_not_applied"))
+    verification_command = delivery.get("verification_command") or []
+    command = " ".join(str(part) for part in verification_command) if isinstance(verification_command, list) else str(verification_command or "")
+    return """## Delivery Status
+- task_graph_status: {task_graph_status}
+- delivery_status: {delivery_status}
+- applied_to_project: {applied_to_project}
+- verification_status: {verification_status}
+- verification_command: {verification_command}
+- user_goal_satisfied: {user_goal_satisfied}
+- apply_manifest: {apply_manifest}
+
+### Files Created
+{files_created}
+
+### Files Modified
+{files_modified}
+
+### Files Not Applied
+{files_not_applied}""".format(
+        task_graph_status=delivery.get("task_graph_status", "not_recorded"),
+        delivery_status=delivery.get("delivery_status", "not_started"),
+        applied_to_project=_bool_text(delivery.get("applied_to_project")),
+        verification_status=delivery.get("verification_status", "not_run"),
+        verification_command=command or "not_run",
+        user_goal_satisfied=_bool_text(delivery.get("user_goal_satisfied")),
+        apply_manifest=delivery.get("apply_manifest") or delivery.get("manifest_path") or "not_recorded",
+        files_created=files_created,
+        files_modified=files_modified,
+        files_not_applied=files_not_applied,
+    )
+
+
+def _list_lines(value) -> str:
+    values = value if isinstance(value, list) else []
+    return "\n".join("- `{0}`".format(item) for item in values) if values else "- None"
+
+
+def _bool_text(value) -> str:
+    return "true" if value is True else "false"

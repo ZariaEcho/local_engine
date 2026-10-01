@@ -9,7 +9,7 @@ def parse(raw):
 
 def assert_contract(sip):
     assert set(sip) == {
-        "type", "skill", "task_id", "confidence", "assumptions", "unknowns", "risks", "warnings", "dependencies", "artifacts", "findings", "recommendations", "decisions", "body", "failure_type"
+        "type", "skill", "task_id", "confidence", "assumptions", "unknowns", "risks", "warnings", "dependencies", "artifacts", "findings", "recommendations", "decisions", "body", "failure_type", "artifact_protocol"
     }
     assert sip["skill"] == "tester"
     assert sip["task_id"] == "task_1"
@@ -17,6 +17,7 @@ def assert_contract(sip):
     for name in ("assumptions", "unknowns", "risks", "warnings", "dependencies", "artifacts", "findings", "recommendations", "decisions"):
         assert isinstance(sip[name], list)
     assert isinstance(sip["body"], str)
+    assert isinstance(sip["artifact_protocol"], str)
 
 
 def test_pure_yaml():
@@ -108,6 +109,23 @@ body: done
     assert sip["assumptions"] == ["assumption"]
     assert sip["dependencies"] == ["task_a"]
     assert sip["artifacts"] == ["report.md"]
+
+
+def test_artifact_protocol_is_preserved():
+    sip = parse(
+        """
+type: patch
+artifact_protocol: local-engine.artifacts.v1
+artifacts:
+  - type: file
+    path: app.py
+    content: |
+      VALUE = 1
+body: generated
+"""
+    )
+    assert sip["artifact_protocol"] == "local-engine.artifacts.v1"
+    assert sip["artifacts"][0]["type"] == "file"
 
 
 @pytest.mark.parametrize("body", ["nested: value\nitems:\n  - one\n", "- one\n- two\n"])

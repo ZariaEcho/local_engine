@@ -1,0 +1,5 @@
+name: LEARN
+keywords: [知识点, 知识缺口, 学习, learn, knowledge gap]
+required_tasks: [learn_scan, learn_gap, learn_plan]
+optional_tasks: [integration_review, memory_update]
+context_sensitive: true

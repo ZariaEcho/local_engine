@@ -1,0 +1,7 @@
+name: review_code
+task_type: review
+description: Review a task result for correctness, safety, completeness, and unresolved risks.
+inputs: [task_output, user_requirement]
+outputs: [review]
+default_agent: reviewer
+review_required: false

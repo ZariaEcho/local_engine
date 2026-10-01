@@ -1,0 +1,5 @@
+name: designer
+description: Design agent for practical experience and interface direction.
+skills: [designer]
+model: {primary: claude, fallback: ""}
+limits: {max_retries: 2}

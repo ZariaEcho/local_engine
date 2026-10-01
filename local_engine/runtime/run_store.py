@@ -105,6 +105,7 @@ class RunStore:
         status = detected_status if detected_status != UNKNOWN_STATUS else str(state.get("status") or UNKNOWN_STATUS)
         phase = str(state.get("phase", ""))
         tasks = state.get("tasks") if isinstance(state.get("tasks"), dict) else {}
+        delivery = state.get("delivery") if isinstance(state.get("delivery"), dict) else {}
         completed = sum(1 for item in tasks.values() if isinstance(item, dict) and _task_completed(item))
         failed = sum(1 for item in tasks.values() if isinstance(item, dict) and _task_failed(item))
         return {
@@ -116,6 +117,7 @@ class RunStore:
             "completed_count": completed,
             "failed_count": failed,
             "final_report": str(run_dir / "final_report.md") if (run_dir / "final_report.md").is_file() else "",
+            "delivery": delivery,
         }
 
     def resume(self, run_id: Optional[str] = None, latest: bool = False) -> Dict[str, object]:
