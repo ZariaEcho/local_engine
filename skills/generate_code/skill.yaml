@@ -1,9 +1,0 @@
-name: generate_code
-task_type: code_generation
-description: Generate repository-local implementation code from the project context.
-inputs: [repo_context, user_requirement, dependency_outputs]
-outputs: [patch]
-default_agent: python_coder
-review_required: true
-cache: {watched_paths: ['**/*.py', pyproject.toml, requirements.txt, README.md]}
-

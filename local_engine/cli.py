@@ -294,7 +294,7 @@ class RunProgress:
                 self.task_workers[task_id] = str(payload.get("worker"))
             lifecycle = payload.get("lifecycle_status")
             if lifecycle:
-                self.progress.update(row, description="[yellow]{0}[/] {1}".format(self._running_description(task_id, lifecycle)))
+                self.progress.update(row, description="[yellow]{0}[/]".format(self._running_description(task_id, lifecycle)))
             self.progress.console.print(
                 "[bold red]Worker attempt failed[/] for {0} ({1}): {2}".format(
                     task_id, payload.get("stage", "attempt"), payload.get("error_message") or "unknown error"

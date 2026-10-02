@@ -29,7 +29,6 @@ EXCLUDED_NAMES = {
     "task_plan.md",
     "venv",
 }
-EXCLUDED_TOP_LEVEL = {"agents", "intents", "skills", "task_templates"}
 EXCLUDED_PATTERNS = {
     "*.egg-info",
     "*.pyc",
@@ -44,8 +43,6 @@ EXCLUDED_PATTERNS = {
 
 def should_exclude(relative: Path) -> bool:
     parts = relative.parts
-    if parts and parts[0] in EXCLUDED_TOP_LEVEL:
-        return True
     if any(part in EXCLUDED_NAMES for part in parts):
         return True
     if any(fnmatch(part, "*.egg-info") for part in parts):

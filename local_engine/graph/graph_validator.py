@@ -1,6 +1,5 @@
 """Strict graph validation plus a bounded repair attempt for planner output."""
 
-from dataclasses import dataclass
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Iterable, List, Optional, Set
 
@@ -23,14 +22,6 @@ def available_task_skills() -> Set[str]:
 # Compatibility export for integrations importing the old name. Validation refreshes
 # the registry each time, so edits to YAML files take effect without a code change.
 ALLOWED_SKILLS = available_task_skills()
-
-
-@dataclass
-class GraphValidationResult:
-    graph: Optional[Dict[str, Any]]
-    repaired: bool
-    warnings: List[str]
-    report: str
 
 
 def validate_graph(graph: Dict[str, Any], allowed_skills: Optional[Iterable[str]] = None) -> None:
@@ -79,28 +70,6 @@ def validate_graph(graph: Dict[str, Any], allowed_skills: Optional[Iterable[str]
         raise ValueError("task graph must contain an integration task")
     if not any(task["skill"] == "memory_manager" or task["id"] == "memory_update" for task in tasks):
         raise ValueError("task graph must contain a memory update task")
-
-
-def validate_and_repair_graph(
-    candidate: Any, run_id: str, requirement: Dict[str, Any], allowed_skills: Optional[Iterable[str]] = None
-) -> GraphValidationResult:
-    """Validate a planner candidate and make one deterministic repair attempt."""
-    try:
-        validate_graph(candidate, allowed_skills)
-        return GraphValidationResult(candidate, False, [], "# Graph Repair Report\n\n## Actions\n- No repair was required.\n")
-    except (TypeError, ValueError) as validation_error:
-        from local_engine.graph.graph_repair import repair_graph
-
-        repair = repair_graph(candidate, run_id, requirement, allowed_skills=allowed_skills)
-        warnings = ["Initial graph validation failed: {0}".format(validation_error)] + repair.warnings
-        if repair.graph is None:
-            return GraphValidationResult(None, False, warnings, _report(warnings))
-        try:
-            validate_graph(repair.graph, allowed_skills)
-        except (TypeError, ValueError) as repaired_error:
-            warnings.append("Repaired graph validation failed: {0}".format(repaired_error))
-            return GraphValidationResult(None, False, warnings, _report(warnings))
-        return GraphValidationResult(repair.graph, True, warnings, _report(warnings))
 
 
 def _validate_expected_output(task_id: str, expected: Any) -> None:
@@ -156,6 +125,3 @@ def _assert_acyclic(dependencies: Dict[str, Set[str]]) -> None:
         visit(task_id)
 
 
-def _report(warnings: List[str]) -> str:
-    rows = "\n".join("- {0}".format(warning) for warning in warnings) or "- No repair was required."
-    return "# Graph Repair Report\n\n## Actions\n{0}\n".format(rows)

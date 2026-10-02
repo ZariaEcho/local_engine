@@ -1,5 +1,0 @@
-name: TEST
-keywords: [测试, test, coverage, 验证]
-required_tasks: [test_scan, test_plan, test_report]
-optional_tasks: [integration_review, memory_update]
-context_sensitive: true

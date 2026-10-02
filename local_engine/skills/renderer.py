@@ -1,7 +1,6 @@
 """Small, strict renderer for prompt.md variable placeholders."""
 
 import re
-from pathlib import Path
 from typing import Any, Mapping
 
 import yaml

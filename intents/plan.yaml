@@ -1,6 +1,0 @@
-name: PLAN
-keywords: [计划, 方案, 如何做, plan, roadmap, 设计]
-required_tasks: [plan_scan, plan_write]
-optional_tasks: [integration_review, memory_update]
-context_sensitive: true
-default: true

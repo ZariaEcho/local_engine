@@ -6,3 +6,9 @@ __pycache__/
 __MACOSX/
 .local_engine/
 .env
+
+# Local planning scratch files (kept on disk, not tracked)
+.planning/
+findings.md
+progress.md
+task_plan.md

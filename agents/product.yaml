@@ -1,5 +1,0 @@
-name: product
-description: Product planning agent for requirements and implementation plans.
-skills: [product]
-model: {primary: claude, fallback: ""}
-limits: {max_retries: 2}

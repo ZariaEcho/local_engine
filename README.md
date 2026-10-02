@@ -107,7 +107,6 @@ execution:
   fallback_executor:
   fallback_model:
   fallback_prompt: true
-  continue_on_failure: true
   timeout_multiplier: 1.5
 review:
   enabled: true
@@ -167,11 +166,6 @@ internal/classification.yaml
 repo_context.json
 task_graph.yaml
 deliverables/
-internal/graph_planner_prompt.md
-internal/graph_planner.raw.txt
-internal/graph_planner.sip.yaml
-internal/graph_planner_candidates.yaml
-internal/graph_repair_report.md
 internal/graph_quality.md
 prompts/<task_id>.prompt.md
 agent_outputs/<task_id>.raw.txt
@@ -194,7 +188,6 @@ artifacts/hooks.jsonl                  # built-in Runtime hook events
 artifacts/errors/<task_id>.json        # classified failure evidence
 artifacts/errors/<task_id>.log         # present for every worker failure
 artifacts/retries/<task_id>.json       # recovery attempt trace
-```
 integration_review.md
 eval_report.md
 memory_update.md

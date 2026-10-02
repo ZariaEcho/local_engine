@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Optional
 import yaml
 
 from local_engine.graph.dependency_resolver import ready_tasks
-from local_engine.kernel.schemas import FailureType, TaskResult, WorkerResult, make_error_sip
+from local_engine.kernel.schemas import FailureType, TaskResult, make_error_sip
 from local_engine.runtime.fallback import FallbackPolicy
 from local_engine.runtime.errors import write_error_artifact
 from local_engine.runtime.retry import RetryPolicy, invoke_worker, run_with_recovery, write_recovery_artifacts

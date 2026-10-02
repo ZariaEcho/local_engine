@@ -1,7 +1,6 @@
 import threading
 import time
 
-from local_engine.graph.task_graph_builder import build_task_graph
 from local_engine.kernel.schemas import WorkerResult
 from local_engine.runtime.engine import Engine
 from local_engine.scheduler.parallel_scheduler import ParallelScheduler
@@ -121,7 +120,24 @@ class TrackingWorker:
 
 
 def test_scheduler_runs_independent_tasks_in_parallel(tmp_path):
-    graph = build_task_graph("run_1", {"source_type": "text", "raw_summary": "x", "user_goal": "x", "real_goal": "x", "success_definition": "x"})
+    graph = {
+        "tasks": [
+            {
+                "id": "alpha",
+                "title": "Independent work alpha",
+                "skill": "researcher",
+                "depends_on": [],
+                "expected_output": {"type": "report", "path": "artifacts/alpha.md"},
+            },
+            {
+                "id": "beta",
+                "title": "Independent work beta",
+                "skill": "writer",
+                "depends_on": [],
+                "expected_output": {"type": "doc", "path": "deliverables/beta.md"},
+            },
+        ]
+    }
     state = {"lock": threading.Lock(), "active": 0, "max_active": 0}
     output_dir = tmp_path / "outputs"
     results = ParallelScheduler(4).run(
@@ -131,6 +147,6 @@ def test_scheduler_runs_independent_tasks_in_parallel(tmp_path):
         tmp_path,
         output_dir,
     )
-    assert len(results) == 7
+    assert len(results) == 2
     assert state["max_active"] >= 2
-    assert (output_dir / "memory_update.sip.yaml").is_file()
+    assert (output_dir / "beta.sip.yaml").is_file()

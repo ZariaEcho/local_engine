@@ -29,8 +29,6 @@ def test_package_release_excludes_dev_and_runtime_trash(tmp_path):
     (root / "local_engine" / "resources" / "__init__.py").write_text("", encoding="utf-8")
     (root / "local_engine" / "resources" / "agents").mkdir()
     (root / "local_engine" / "resources" / "agents" / "backend.yaml").write_text("name: backend\n", encoding="utf-8")
-    (root / "agents").mkdir()
-    (root / "agents" / "backend.yaml").write_text("name: backend\n", encoding="utf-8")
     (root / ".git").mkdir()
     (root / ".git" / "HEAD").write_text("ref: main\n", encoding="utf-8")
     (root / ".venv").mkdir()
@@ -54,6 +52,5 @@ def test_package_release_excludes_dev_and_runtime_trash(tmp_path):
     assert not any(name.startswith(".pytest_cache/") for name in names)
     assert not any(name.startswith(".local_engine/") for name in names)
     assert not any(".egg-info/" in name for name in names)
-    assert "agents/backend.yaml" not in names
     assert "local_engine/resources/agents/backend.yaml" in names
     assert "task_plan.md" not in names

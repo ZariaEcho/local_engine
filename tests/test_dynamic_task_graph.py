@@ -1,4 +1,3 @@
-from copy import deepcopy
 import threading
 import time
 
@@ -8,7 +7,6 @@ import yaml
 from local_engine.compiler.prompt_compiler import compile_task_prompt
 from local_engine.graph.graph_repair import repair_graph
 from local_engine.graph.graph_validator import validate_graph
-from local_engine.graph.task_graph_builder import select_task_graph
 from local_engine.kernel.schemas import TaskResult, WorkerResult
 from local_engine.runtime.engine import Engine
 from local_engine.scheduler.parallel_scheduler import ParallelScheduler
@@ -132,22 +130,6 @@ def test_graph_repair_fills_omissions_repairs_paths_skills_and_cycles():
     assert repaired.graph["tasks"][0]["expected_output"]["path"] == "patches/source_research.patch"
     assert any("cyclic dependency" in warning for warning in repaired.warnings)
     assert "Graph Repair Report" in repaired.report
-
-
-def test_task_graph_selection_uses_dynamic_repaired_and_fallback_sources():
-    selected = select_task_graph("run_one", requirement(), dynamic_graph("run_one"), 0.91)
-    assert selected.graph["metadata"]["graph_source"] == "dynamic"
-    assert selected.graph["metadata"]["planner_confidence"] == 0.91
-
-    repairable = dynamic_graph("run_two")
-    repairable["tasks"][0].pop("expected_output")
-    selected = select_task_graph("run_two", requirement(), repairable)
-    assert selected.graph["metadata"]["graph_source"] == "repaired"
-    validate_graph(selected.graph)
-
-    selected = select_task_graph("run_three", requirement(), {"tasks": []})
-    assert selected.graph["metadata"]["graph_source"] == "fallback_template"
-    assert any("Dynamic graph planning failed" in warning for warning in selected.graph["metadata"]["warnings"])
 
 
 def test_prompt_compiler_uses_generic_guidance_dependencies_metadata_and_constraints():

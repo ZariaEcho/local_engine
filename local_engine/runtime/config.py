@@ -24,7 +24,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "fallback_executor": None,
         "fallback_model": None,
         "fallback_prompt": True,
-        "continue_on_failure": True,
         "timeout_multiplier": 1.5,
     },
     "review": {

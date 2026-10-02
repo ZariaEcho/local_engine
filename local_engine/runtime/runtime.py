@@ -7,7 +7,7 @@ compatibility adapter for existing callers.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from local_engine.runtime.contracts import RuntimeInput, RuntimeOutput
 from local_engine.runtime.phases.finalize import apply_existing_run, finalize_run

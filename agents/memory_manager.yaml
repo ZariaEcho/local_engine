@@ -1,5 +1,0 @@
-name: memory_manager
-description: Memory agent for durable decisions, risks, and follow-up context.
-skills: [memory_manager]
-model: {primary: claude, fallback: ""}
-limits: {max_retries: 1}

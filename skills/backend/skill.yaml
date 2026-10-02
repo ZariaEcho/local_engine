@@ -1,8 +1,0 @@
-name: backend
-task_type: backend
-description: Plan or implement backend changes using the project context.
-inputs: [repo_context, user_requirement]
-outputs: [patch, backend_plan]
-default_agent: backend
-review_required: true
-cache: {watched_paths: ['**/*.py', '**/*.go', '**/*.rs', '**/*.java', pyproject.toml, requirements.txt, go.mod, Cargo.toml, pom.xml]}

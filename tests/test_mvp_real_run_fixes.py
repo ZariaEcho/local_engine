@@ -4,7 +4,7 @@ from local_engine.cli import RunProgress
 from local_engine.context.project_type import detect_project_type
 from local_engine.context.repo_scanner import scan_project
 from local_engine.graph.dynamic_builder import build_graph
-from local_engine.graph.graph_quality import GraphQualityError, graph_quality_check
+from local_engine.graph.graph_quality import graph_quality_check
 from local_engine.kernel.schemas import WorkerResult
 from local_engine.runtime.engine import Engine
 from local_engine.runtime.retry import RetryPolicy, run_with_recovery

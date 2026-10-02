@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from local_engine.context.repo_scanner import RepoInfo
 

@@ -1,5 +1,0 @@
-name: data_analyst
-description: Analysis agent for architecture, risks, and structured findings.
-skills: [data_analyst]
-model: {primary: claude, fallback: ""}
-limits: {max_retries: 2}

@@ -17,7 +17,6 @@ from local_engine.runtime.errors import write_error_artifact
 @dataclass(frozen=True)
 class RetryPolicy:
     max_retries: int = 2
-    continue_on_failure: bool = True
     timeout_multiplier: float = 1.5
 
     @classmethod
@@ -31,7 +30,7 @@ class RetryPolicy:
         multiplier = execution.get("timeout_multiplier", 1.5)
         if isinstance(multiplier, bool) or not isinstance(multiplier, (int, float)) or multiplier < 1:
             multiplier = 1.5
-        return cls(max_retries=maximum, continue_on_failure=bool(execution.get("continue_on_failure", True)), timeout_multiplier=float(multiplier))
+        return cls(max_retries=maximum, timeout_multiplier=float(multiplier))
 
 
 @dataclass

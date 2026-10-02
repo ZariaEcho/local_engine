@@ -1,7 +1,0 @@
-name: generate_api
-task_type: generate_api
-description: Design or implement a repository-aligned API surface.
-inputs: [repo_context, user_requirement]
-outputs: [api_design, patch]
-default_agent: backend
-review_required: true

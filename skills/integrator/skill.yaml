@@ -1,6 +1,0 @@
-name: integrator
-task_type: integration_review
-description: Assess cross-task consistency and integration readiness.
-inputs: [task_outputs, user_requirement]
-outputs: [integration_review]
-default_agent: integrator

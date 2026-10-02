@@ -1,7 +1,0 @@
-name: tester
-task_type: test
-description: Design focused tests and regression coverage for a requested change.
-inputs: [repo_context, user_requirement]
-outputs: [test_plan]
-default_agent: tester
-cache: {watched_paths: ['tests/**', '**/test_*.py', '**/*.test.ts', '**/*.spec.ts', pyproject.toml, package.json]}

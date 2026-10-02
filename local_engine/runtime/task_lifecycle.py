@@ -267,7 +267,6 @@ def run_review_loop(
 ) -> None:
     """Review executable task outputs and revise them until pass or the configured limit."""
     review_config = config.get("review", {}) if isinstance(config.get("review"), dict) else {}
-    loop_config = config.get("loop", {}) if isinstance(config.get("loop"), dict) else {}
     enabled = bool(review_config.get("enabled", True))
     max_rounds = review_config.get("max_rounds", 2)
     if isinstance(max_rounds, bool) or not isinstance(max_rounds, int) or max_rounds < 1:

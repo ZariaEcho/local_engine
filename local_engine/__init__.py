@@ -1,3 +1,5 @@
 """local_engine package."""
 
-__version__ = "0.1.0"
+from local_engine.__version__ import __version__
+
+__all__ = ["__version__"]
