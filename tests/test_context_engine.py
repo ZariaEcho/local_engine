@@ -9,7 +9,17 @@ from local_engine.cli import app
 from local_engine.context.context_builder import build_context, list_modules
 from local_engine.context.repo_scanner import scan_project
 from local_engine.graph.dynamic_builder import build_graph
-from local_engine.planner.intent_classifier import AUDIT, BUILD, DOCUMENT, LEARN, PLAN, REFACTOR, RESEARCH, TEST, classify
+from local_engine.planner.intent_classifier import (
+    AUDIT,
+    BUILD,
+    DOCUMENT,
+    LEARN,
+    PLAN,
+    REFACTOR,
+    RESEARCH,
+    TEST,
+    classify,
+)
 from local_engine.runtime.engine import Engine
 from local_engine.workers.mock_worker import MockWorker
 

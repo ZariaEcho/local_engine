@@ -23,6 +23,8 @@ jobs:
           pip install -e '.[dev]'
       - name: Lint
         run: ruff check .
+      - name: Type check
+        run: mypy local_engine
       - name: Fast tests
         run: pytest -m "not integration"
       - name: Integration tests

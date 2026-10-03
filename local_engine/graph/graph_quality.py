@@ -1,7 +1,7 @@
 """Semantic quality checks for structurally valid task graphs."""
 
-from dataclasses import dataclass, field
 import re
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from local_engine.intents.registry import IntentRegistry

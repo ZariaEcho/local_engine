@@ -1,11 +1,10 @@
 """Bounded, dependency-free repository structure scanning."""
 
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, Iterable, List, Set
-
 
 _LANGUAGES = {
     ".py": "Python",

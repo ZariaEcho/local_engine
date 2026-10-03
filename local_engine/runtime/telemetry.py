@@ -8,7 +8,6 @@ from typing import Any, Dict
 from local_engine.__version__ import __version__
 from local_engine.runtime.state import utc_now
 
-
 ALLOWED_FIELDS = {
     "timestamp",
     "local_engine_version",

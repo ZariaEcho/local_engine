@@ -5,7 +5,6 @@ from typing import Any, Dict, List
 
 from local_engine.kernel.schemas import TaskResult
 
-
 DEFAULT_QUALITY_POLICY = {
     "min_body_characters": 80,
     "max_body_characters": 12000,

@@ -6,8 +6,8 @@ from typing import Dict, Iterable, Iterator, Optional
 
 import yaml
 
-from local_engine.resources import resource_directory
 from local_engine.agents.schema import AgentDefinition, AgentSchemaError
+from local_engine.resources import resource_directory
 
 
 def default_agents_dir() -> Path:

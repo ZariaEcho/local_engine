@@ -6,9 +6,9 @@ from typing import Dict, Iterable, Iterator, Optional
 
 import yaml
 
-from local_engine.resources import resource_directory
-from local_engine.intents.schema import IntentDefinition, IntentSchemaError
 from local_engine.intents.classification import ClassificationCandidate, ClassificationResult
+from local_engine.intents.schema import IntentDefinition, IntentSchemaError
+from local_engine.resources import resource_directory
 
 
 def default_intents_dir() -> Path:

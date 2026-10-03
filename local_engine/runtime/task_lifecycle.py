@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import re
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from local_engine.agents.registry import AgentRegistry
@@ -21,7 +21,6 @@ from local_engine.runtime.run_context import RunContext
 from local_engine.runtime.task_summary import build_task_summary
 from local_engine.scheduler.parallel_scheduler import ParallelScheduler
 from local_engine.skills.registry import SkillRegistry
-
 
 NEEDS_HUMAN_FAILURES = {
     FailureType.LOGIC.value,

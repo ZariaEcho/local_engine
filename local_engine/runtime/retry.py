@@ -1,17 +1,17 @@
 """Typed worker failure classification, bounded recovery, and evidence."""
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 import inspect
 import json
-from pathlib import Path
 import re
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from local_engine.kernel.schemas import FailureType, WorkerResult
 from local_engine.kernel.sip_parser import parse_sip
-from local_engine.runtime.fallback import FallbackPolicy
 from local_engine.runtime.errors import write_error_artifact
+from local_engine.runtime.fallback import FallbackPolicy
 
 
 @dataclass(frozen=True)

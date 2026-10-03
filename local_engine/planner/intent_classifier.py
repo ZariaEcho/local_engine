@@ -1,8 +1,7 @@
 """Small deterministic classifier backed by declarative intent YAML."""
 
-from local_engine.intents.registry import IntentRegistry
 from local_engine.intents.classification import ClassificationResult
-
+from local_engine.intents.registry import IntentRegistry
 
 AUDIT = "AUDIT"
 PLAN = "PLAN"

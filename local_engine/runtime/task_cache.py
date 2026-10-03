@@ -1,14 +1,13 @@
 """Repository fingerprints and conservative verified task-result reuse."""
 
-from dataclasses import asdict, dataclass
 import fnmatch
 import hashlib
 import json
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 from local_engine.kernel.schemas import TaskResult
-
 
 _IGNORED = {".git", ".local_engine", ".venv", "venv", "node_modules", "__pycache__", "target", "build", "dist", ".pytest_cache"}
 

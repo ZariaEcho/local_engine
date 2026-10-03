@@ -7,7 +7,6 @@ import yaml
 
 from local_engine.kernel.schemas import WorkerResult
 
-
 Response = Union[str, Callable[[str, Any], str]]
 
 

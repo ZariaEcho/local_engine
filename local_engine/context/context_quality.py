@@ -1,12 +1,11 @@
 """Non-blocking evidence for whether project context is complete enough to trust."""
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from local_engine.context.repo_scanner import RepoInfo
-
 
 _IGNORED_PARTS = {".git", ".local_engine", ".venv", "venv", "node_modules", "__pycache__", "target", "build", "dist"}
 _DEPENDENCY_FILES = ("pyproject.toml", "requirements.txt", "setup.py", "package.json", "pnpm-lock.yaml", "uv.lock")

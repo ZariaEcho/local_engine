@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import yaml
@@ -25,8 +25,8 @@ from local_engine.intents.registry import IntentRegistry
 from local_engine.memory.memory_loader import load_engine_memory, load_project_memory, read_text
 from local_engine.runtime.config import load_engine_config, load_preferences, load_yaml
 from local_engine.runtime.contracts import RuntimeInput
-from local_engine.runtime.execution_context import RunExecutionContext
 from local_engine.runtime.events import RuntimeEventRecorder, emit_optional
+from local_engine.runtime.execution_context import RunExecutionContext
 from local_engine.runtime.executor_manager import ExecutorManager
 from local_engine.runtime.pipeline import build_definition_hashes, build_run_metadata, load_run_registries
 from local_engine.runtime.reporting import write_run_metadata

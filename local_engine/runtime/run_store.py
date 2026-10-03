@@ -14,7 +14,6 @@ from local_engine.artifacts.recover_report import (
 from local_engine.runtime.run_index import RunIndex
 from local_engine.runtime.state import initial_state, load_state, write_state
 
-
 RUN_SUBDIRS = (
     "prompts",
     "agent_outputs",
@@ -156,9 +155,7 @@ def _task_completed(task: Dict[str, object]) -> bool:
     lifecycle = _normalize_status(task.get("lifecycle_status"))
     if status in SUCCESS_TASK_STATUSES and (not lifecycle or lifecycle in SUCCESS_LIFECYCLE_STATUSES):
         return True
-    if lifecycle in SUCCESS_LIFECYCLE_STATUSES and (not status or status not in FAILED_TASK_STATUSES):
-        return True
-    return False
+    return lifecycle in SUCCESS_LIFECYCLE_STATUSES and (not status or status not in FAILED_TASK_STATUSES)
 
 
 def _normalize_status(value: object) -> str:

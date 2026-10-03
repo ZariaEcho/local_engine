@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import argparse
-from fnmatch import fnmatch
-from pathlib import Path
 import tomllib
 import zipfile
-
+from fnmatch import fnmatch
+from pathlib import Path
 
 EXCLUDED_NAMES = {
     ".git",

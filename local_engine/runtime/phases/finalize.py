@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import re
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from local_engine.artifacts.artifact_store import ArtifactStore
@@ -17,16 +17,16 @@ from local_engine.integrator.integrator import build_integration_review
 from local_engine.intents.classification import ClassificationResult
 from local_engine.kernel.schemas import TaskResult
 from local_engine.memory.memory_writer import write_memory_update
-from local_engine.runtime.artifact_applier import ArtifactApplier, ApplyResult, DeliveryStatus, VerificationStatus
-from local_engine.runtime.outcome import RunOutcome
+from local_engine.runtime.artifact_applier import ApplyResult, ArtifactApplier, DeliveryStatus, VerificationStatus
 from local_engine.runtime.events import emit_optional
+from local_engine.runtime.outcome import RunOutcome
+from local_engine.runtime.phases.schedule import write_run_state
 from local_engine.runtime.pipeline import summarize_results
 from local_engine.runtime.reporting import write_run_metadata
 from local_engine.runtime.run_context import RunContext
 from local_engine.runtime.run_index import RunIndex
 from local_engine.runtime.run_store import resolve_run_dir
 from local_engine.runtime.session import RunSession
-from local_engine.runtime.phases.schedule import write_run_state
 from local_engine.runtime.state import load_state, write_state
 from local_engine.runtime.telemetry import write_telemetry_event
 from local_engine.safety.permission_guard import validate_project_root

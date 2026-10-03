@@ -1,9 +1,8 @@
 """Durable project-local artifact storage outside individual run reports."""
 
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Optional
-
 
 _DIRECTORIES = {"audit": "audit", "plan": "plan", "review": "review", "test": "test", "docs": "docs"}
 

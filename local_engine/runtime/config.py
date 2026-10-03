@@ -6,7 +6,6 @@ from typing import Any, Dict
 
 import yaml
 
-
 DEFAULT_CONFIG: Dict[str, Any] = {
     "workers": 4,
     "executors": {

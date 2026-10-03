@@ -12,3 +12,6 @@ __MACOSX/
 findings.md
 progress.md
 task_plan.md
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/

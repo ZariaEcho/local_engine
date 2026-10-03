@@ -1,34 +1,33 @@
 """Typer command-line interface for local_engine."""
 
-from pathlib import Path
 import json
 import sys
 import time
-from typing import Any, Dict, Optional
 import webbrowser
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 import typer
+import yaml
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
-import yaml
 
+from local_engine.__version__ import __version__
 from local_engine.agents.registry import AgentRegistry
 from local_engine.artifacts.recover_report import detect_status, recover_report
 from local_engine.context.context_builder import list_modules
+from local_engine.intents.classification import ClarificationRequired
+from local_engine.runtime.contracts import RuntimeInput
 from local_engine.runtime.doctor import run_doctor
 from local_engine.runtime.engine import Engine
-from local_engine.runtime.contracts import RuntimeInput
-from local_engine.runtime.runtime import Runtime
 from local_engine.runtime.reporting import resolve_report
 from local_engine.runtime.run_index import RunIndex
 from local_engine.runtime.run_store import RunStore
+from local_engine.runtime.runtime import Runtime
 from local_engine.skills.registry import SkillRegistry
-from local_engine.intents.classification import ClarificationRequired
-from local_engine.__version__ import __version__
 
-
-app = typer.Typer(help="A local repository-aware Context Engine powered by Claude CLI workers.")
+app = typer.Typer(help="A local repository-aware task-graph runtime powered by Claude CLI executors.")
 agents_app = typer.Typer(help="Inspect dynamically loaded agent definitions.")
 skills_app = typer.Typer(help="Inspect dynamically loaded reusable skill definitions.")
 runs_app = typer.Typer(help="Inspect and open globally indexed engine runs.")
@@ -85,14 +84,14 @@ def _resolve_cli_intent(
     except ClarificationRequired as exc:
         typer.echo(_render_clarification(exc.result), err=True)
         if not sys.stdin.isatty():
-            raise typer.Exit(code=2)
+            raise typer.Exit(code=2) from None
         candidates = exc.result.candidates[:3]
         valid = {chr(ord("A") + index): candidate.intent for index, candidate in enumerate(candidates)}
         selection = typer.prompt("请选择").strip().upper()
         selected = valid.get(selection, selection if selection in {candidate.intent for candidate in candidates} else None)
         if selected is None:
             typer.echo("Error: choose one of {0}".format(", ".join(valid)), err=True)
-            raise typer.Exit(code=2)
+            raise typer.Exit(code=2) from None
         return selected
 
 
@@ -156,7 +155,7 @@ def _run_record_or_exit(run_id: Optional[str] = None, latest: bool = False) -> D
         record = index.latest() if latest else index.get(str(run_id or ""))
     except ValueError as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     if record is None:
         typer.echo("Error: no matching run found", err=True)
         raise typer.Exit(code=1)
@@ -207,7 +206,7 @@ def runs_open(run_id: str = typer.Argument(..., help="Indexed run ID.")) -> None
         opened = webbrowser.open(path.resolve().as_uri())
     except Exception as exc:
         typer.echo("Error: could not open {0}: {1}".format(path, exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     if not opened:
         typer.echo("Error: no system handler opened {0}".format(path), err=True)
         raise typer.Exit(code=1)
@@ -235,7 +234,7 @@ def runs_recover(
         final = recover_report(report_dir)
     except (FileNotFoundError, ValueError, OSError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     status = detect_status(report_dir)
     RunIndex().finalize(str(record["run_id"]), status=status, report_path=final, report_dir=str(report_dir))
     typer.echo("run_id: {0}".format(record["run_id"]))
@@ -359,7 +358,7 @@ def init(
         state = Engine().initialize(project)
     except (FileNotFoundError, ValueError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     typer.echo("Initialized {0}".format(state))
 
 
@@ -372,7 +371,7 @@ def scan(
         info = Engine().scan(project)
     except (FileNotFoundError, ValueError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     root = project.expanduser().resolve() / ".local_engine"
     typer.echo("Scanned {0} supported files.".format(len(info.files)))
     typer.echo("repo_map.json: {0}".format(root / "cache" / "repo_map.json"))
@@ -390,7 +389,7 @@ def inspect(
         quality = engine.context_quality(project, info)
     except (FileNotFoundError, ValueError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     typer.echo(_inspect_output(info.languages, list_modules(info), info.dependencies, info.directories, quality))
 
 
@@ -400,7 +399,7 @@ def graph_preview(
     project: Path = typer.Option(..., "--project", help="Existing project root to inspect."),
     intent: Optional[str] = typer.Option(None, "--intent", help="Explicit intent override when classification is uncertain."),
 ) -> None:
-    """Preview the deterministic Context Engine task graph without running workers."""
+    """Preview the deterministic task graph without running workers."""
     try:
         engine = Engine()
         resolved_intent = _resolve_cli_intent(engine, task, None, intent, None)
@@ -409,7 +408,7 @@ def graph_preview(
         raise
     except (FileNotFoundError, ValueError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     typer.echo(_graph_preview(graph))
 
 
@@ -446,7 +445,7 @@ def status(
         state = RunStore(project.expanduser().resolve() / ".local_engine").status(run_id=run_id, latest=latest)
     except (FileNotFoundError, ValueError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     typer.echo("run_id: {0}".format(state["run_id"]))
     typer.echo("status: {0}".format(state["status"]))
     typer.echo("phase: {0}".format(state["phase"]))
@@ -472,7 +471,7 @@ def resume(
         state = RunStore(project.expanduser().resolve() / ".local_engine").resume(run_id=run_id, latest=latest)
     except (FileNotFoundError, ValueError, OSError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     typer.echo("run_id: {0}".format(state["run_id"]))
     typer.echo("status: {0}".format(state["status"]))
     typer.echo("phase: {0}".format(state["phase"]))
@@ -515,7 +514,7 @@ def plan_command(
         raise
     except (FileNotFoundError, ValueError, KeyError, PermissionError, RuntimeError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     typer.echo(_run_summary(outcome))
     if outcome.has_failures:
         raise typer.Exit(code=1)
@@ -539,7 +538,7 @@ def apply_command(
         result = Runtime().apply_run(project, run_id, apply_approved=approved, verify=not no_verify)
     except (FileNotFoundError, ValueError, PermissionError, RuntimeError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     typer.echo(_apply_summary(result))
     if result.delivery_status in {"failed", "needs_human", "artifacts_generated"} and not result.user_goal_satisfied:
         raise typer.Exit(code=1)
@@ -616,7 +615,7 @@ def run(
         raise
     except (FileNotFoundError, ValueError, KeyError, PermissionError, RuntimeError) as exc:
         typer.echo("Error: {0}".format(exc), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     typer.echo(_run_summary(outcome))
     if outcome.has_failures:
         raise typer.Exit(code=1)

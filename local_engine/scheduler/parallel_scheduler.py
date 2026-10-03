@@ -1,18 +1,18 @@
 """Thread-pool scheduler that honours graph dependencies without gating on SIP type."""
 
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-import time
 from typing import Any, Callable, Dict, Optional
 
 import yaml
 
 from local_engine.graph.dependency_resolver import ready_tasks
 from local_engine.kernel.schemas import FailureType, TaskResult, make_error_sip
-from local_engine.runtime.fallback import FallbackPolicy
-from local_engine.runtime.errors import write_error_artifact
-from local_engine.runtime.retry import RetryPolicy, invoke_worker, run_with_recovery, write_recovery_artifacts
 from local_engine.kernel.sip_parser import parse_sip
+from local_engine.runtime.errors import write_error_artifact
+from local_engine.runtime.fallback import FallbackPolicy
+from local_engine.runtime.retry import RetryPolicy, invoke_worker, run_with_recovery, write_recovery_artifacts
 from local_engine.scheduler.execution_state import ExecutionState
 
 

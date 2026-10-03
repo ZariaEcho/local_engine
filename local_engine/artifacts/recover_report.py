@@ -1,13 +1,12 @@
 """Recover a readable final report from an existing run directory."""
 
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
 import yaml
-
 
 FAILED_STATES = {"failed", "failed_but_continued", "needs_human", "logic_failed"}
 FAILED_TASK_STATUSES = FAILED_STATES | {"error", "timeout", "cancelled", "interrupted", "blocked"}
@@ -396,9 +395,7 @@ def _record_completed(record: Dict[str, Any]) -> bool:
     lifecycle = _normalize_status(record.get("lifecycle_status"))
     if status in SUCCESS_TASK_STATUSES and (not lifecycle or lifecycle in SUCCESS_LIFECYCLE_STATUSES):
         return True
-    if lifecycle in SUCCESS_LIFECYCLE_STATUSES and (not status or status not in FAILED_TASK_STATUSES):
-        return True
-    return False
+    return lifecycle in SUCCESS_LIFECYCLE_STATUSES and (not status or status not in FAILED_TASK_STATUSES)
 
 
 def _normalize_status(value: Any) -> str:

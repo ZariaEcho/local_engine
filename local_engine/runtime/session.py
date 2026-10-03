@@ -11,8 +11,8 @@ from local_engine.context.repo_scanner import RepoInfo
 from local_engine.intents.classification import ClassificationResult
 from local_engine.kernel.schemas import TaskResult
 from local_engine.runtime.contracts import RuntimeInput
-from local_engine.runtime.execution_context import RunExecutionContext
 from local_engine.runtime.events import RuntimeEventRecorder
+from local_engine.runtime.execution_context import RunExecutionContext
 from local_engine.runtime.pipeline import RunRegistries
 from local_engine.runtime.run_context import RunContext
 from local_engine.runtime.task_cache import TaskCache

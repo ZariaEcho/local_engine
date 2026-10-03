@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 SUPPORTED_SUFFIXES = {".md", ".markdown", ".txt"}
 
 

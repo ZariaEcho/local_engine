@@ -5,7 +5,6 @@ from typing import Any, Dict, Iterable, List
 
 from local_engine.context.repo_scanner import RepoInfo
 
-
 _DEPENDENCY_MANIFESTS = {
     "pyproject.toml",
     "requirements.txt",

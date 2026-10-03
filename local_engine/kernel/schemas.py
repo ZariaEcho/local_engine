@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List
 
-
 SIP_DEFAULTS = {
     "type": "unstructured",
     "confidence": 0.0,

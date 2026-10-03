@@ -1,7 +1,7 @@
 """Paths belonging to one safe, report-oriented engine run."""
 
-from dataclasses import dataclass
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 
@@ -10,7 +10,6 @@ import yaml
 from local_engine.runtime.config import ensure_engine_home
 from local_engine.runtime.run_index import RunIndex
 from local_engine.runtime.run_store import create_run_dir
-
 
 _ACTIVE_RUN_ID: ContextVar[str] = ContextVar("local_engine_active_run_id", default="")
 

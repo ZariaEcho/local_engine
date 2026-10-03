@@ -1,16 +1,15 @@
 """Atomic JSON run index for reports produced across all projects."""
 
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import yaml
 
 from local_engine.runtime.config import ensure_engine_home
-
 
 _RUN_ID = re.compile(r"^(\d{4}-\d{2}-\d{2})-(\d{3,})$")
 _TERMINAL = {"completed", "completed_with_failures", "partial", "failed", "interrupted"}

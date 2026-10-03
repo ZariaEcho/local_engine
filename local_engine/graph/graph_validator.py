@@ -3,7 +3,6 @@
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Iterable, List, Optional, Set
 
-
 _ARTIFACT_OUTPUT_TYPES = {"report", "doc", "analysis", "research", "design"}
 _WARNING_SIP_TYPES = {"error", "parse_error", "unstructured"}
 

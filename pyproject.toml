@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-engine"
-version = "0.3.1"
-description = "A local repository-aware Context Engine powered by Claude CLI workers."
+dynamic = ["version"]
+description = "A local repository-aware task-graph runtime powered by Claude CLI executors."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "ruff>=0.4"]
+dev = ["pytest>=7.0", "ruff>=0.4", "mypy>=1.8", "types-PyYAML"]
 
 [project.scripts]
 local-engine = "local_engine.cli:app"
@@ -33,7 +33,19 @@ line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "B", "SIM", "S", "I"]
+ignore = [
+  "S603",   # subprocess calls use argv lists, never shell=True
+  "S607",   # git/npm/claude are resolved from PATH by design
+  "SIM108", # ternary is not always clearer
+]
+
+[tool.ruff.lint.per-file-ignores]
+"local_engine/cli.py" = ["B008"]  # typer.Option defaults are the framework idiom
+"tests/*" = ["S101", "S108", "S105", "S106"]
+
+[tool.setuptools.dynamic]
+version = { attr = "local_engine.__version__.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["local_engine*"]
@@ -46,3 +58,31 @@ include = ["local_engine*"]
   "skills/*/*.yaml",
   "skills/*/*.md",
 ]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+# Existing type debt: remove a module from this list once its errors are fixed.
+[[tool.mypy.overrides]]
+module = [
+  "local_engine.artifacts.recover_report",
+  "local_engine.cli",
+  "local_engine.context.context_quality",
+  "local_engine.graph.dynamic_builder",
+  "local_engine.graph.graph_quality",
+  "local_engine.graph.graph_repair",
+  "local_engine.kernel.schemas",
+  "local_engine.planner.intent_classifier",
+  "local_engine.runtime.config",
+  "local_engine.runtime.outcome",
+  "local_engine.runtime.phases.finalize",
+  "local_engine.runtime.phases.schedule",
+  "local_engine.runtime.quality",
+  "local_engine.runtime.reporting",
+  "local_engine.runtime.run_index",
+  "local_engine.runtime.run_store",
+  "local_engine.runtime.task_lifecycle",
+]
+ignore_errors = true

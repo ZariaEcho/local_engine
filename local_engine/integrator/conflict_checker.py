@@ -7,7 +7,6 @@ from typing import Dict, Iterable, List
 
 from local_engine.kernel.schemas import TaskResult
 
-
 _PATCH_TARGET = re.compile(r"^\+\+\+\s+(?:b/)?(.+)$", re.MULTILINE)
 
 

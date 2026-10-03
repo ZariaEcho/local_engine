@@ -4,7 +4,6 @@ from typing import Any, Dict, List
 
 from local_engine.kernel.schemas import TaskResult
 
-
 SUMMARY_FIELDS = ("findings", "risks", "decisions")
 MAX_ITEMS = 5
 MAX_ITEM_CHARACTERS = 500

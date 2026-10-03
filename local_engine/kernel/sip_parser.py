@@ -6,7 +6,6 @@ from typing import Any, Dict, Optional
 
 import yaml
 
-
 _FENCED_BLOCK = re.compile(r"```[^\n]*\n(.*?)```", re.IGNORECASE | re.DOTALL)
 _YAML_TYPE_FRAGMENT = re.compile(r"(?m)^type\s*:\s*.+$")
 

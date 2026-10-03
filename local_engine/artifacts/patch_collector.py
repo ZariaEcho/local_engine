@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 
 from local_engine.kernel.schemas import TaskResult
 
-
 _DIFF_BLOCK = re.compile(r"```(?:diff|patch)\s*\n(.*?)```", re.IGNORECASE | re.DOTALL)
 
 

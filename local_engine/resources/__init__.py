@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from importlib import resources
-from pathlib import Path
 import shutil
 import tempfile
+from importlib import resources
+from pathlib import Path
 from typing import Dict
-
 
 _MATERIALIZED: Dict[str, Path] = {}
 
