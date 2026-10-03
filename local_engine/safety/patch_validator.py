@@ -5,7 +5,6 @@ from typing import Iterable
 
 from local_engine.safety.permission_guard import is_safe_project_relative
 
-
 FORBIDDEN_TEXT = ("rm -rf", "git push", "drop database", "drop table", "truncate table")
 _PATCH_PATH = re.compile(r"^(?:\+\+\+|---)\s+(?:a/|b/)?(.+)$", re.MULTILINE)
 

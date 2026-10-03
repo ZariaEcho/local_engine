@@ -1,6 +1,6 @@
 """Boundaries shared by initialization, run reports, and patch application."""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 def validate_project_root(project_root: Path) -> Path:
@@ -11,6 +11,16 @@ def validate_project_root(project_root: Path) -> Path:
 
 
 def is_safe_project_relative(path_value: str) -> bool:
-    normalized = path_value.replace("\\", "/").lstrip("./")
-    parts = [part for part in normalized.split("/") if part]
-    return bool(parts) and ".." not in parts and ".git" not in parts and not Path(path_value).is_absolute()
+    """Return True only for a plain relative path that stays inside the project and avoids `.git`."""
+    if not isinstance(path_value, str) or not path_value.strip() or "\x00" in path_value:
+        return False
+    normalized = path_value.strip().replace("\\", "/")
+    if normalized.startswith(("/", "~")):
+        return False
+    windows = PureWindowsPath(normalized)
+    if windows.drive or windows.is_absolute():
+        return False
+    parts = [part for part in PurePosixPath(normalized).parts if part not in ("", ".")]
+    if not parts:
+        return False
+    return all(part != ".." and part.lower() != ".git" for part in parts)
