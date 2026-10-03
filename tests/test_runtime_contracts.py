@@ -3,6 +3,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from local_engine.__version__ import __version__
 from local_engine.agents.registry import AgentRegistry
 from local_engine.cli import app
 from local_engine.kernel.schemas import WorkerResult
@@ -104,7 +105,7 @@ def test_new_run_dir_state_latest_status_resume_hooks_and_version(tmp_path, monk
     runner = CliRunner()
     version = runner.invoke(app, ["--version"])
     assert version.exit_code == 0
-    assert "0.3.1" in version.output
+    assert __version__ in version.output
 
     status = runner.invoke(app, ["status", "--project", str(project)])
     assert status.exit_code == 0, status.output
@@ -144,7 +145,7 @@ def test_telemetry_is_default_disabled_and_sanitized_when_enabled(tmp_path, monk
     Engine().run(project, "不要采集这个原始需求", skill="audit_repo", worker_factory=lambda: PassingWorker())
     event = json.loads((project / ".local_engine" / "telemetry" / "events.jsonl").read_text(encoding="utf-8").splitlines()[-1])
 
-    assert event["local_engine_version"] == "0.3.1"
+    assert event["local_engine_version"] == __version__
     assert event["command_type"] == "run"
     forbidden = json.dumps(event, ensure_ascii=False)
     assert "不要采集这个原始需求" not in forbidden

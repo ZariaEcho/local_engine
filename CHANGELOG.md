@@ -1,6 +1,43 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
+
+### Security
+
+- Fixed `is_safe_project_relative`: `lstrip("./")` stripped leading dots, so
+  `.git/...` paths (including `.git/hooks/*`) passed the guard. The check now
+  inspects path components, is case-insensitive for `.git`, and rejects
+  absolute, drive-letter, `~`, NUL, and `..` paths.
+- `ArtifactApplier` now also rejects paths that resolve through a symlink into
+  `.git/` or outside the project root.
+- Apply now validates every artifact path, patch path, and `git apply --check`
+  before writing anything, and restores all touched files (and removes
+  directories it created) if any later step fails.
+- Added `tests/test_safety_boundaries.py` covering path guards, patch
+  validation, symlink escapes, preflight, and rollback.
+
+### Refactoring
+
+- Executors: removed `workers/claude_cli_worker.py`; `ClaudeExecutor` is now a
+  thin `ShellExecutor` subclass, so there is one subprocess implementation.
+  Failure messages are unchanged. `ShellExecutor` now merges `request.env` into
+  the inherited environment instead of replacing it.
+- Split `runtime/artifact_applier.py` into `artifact_parsing.py` (artifact
+  extraction), `verification.py` (project verification), and
+  `apply_snapshot.py` (rollback). `artifact_applier` re-exports the public names.
+
+### Tooling
+
+- Ruff now also selects `B`, `SIM`, `S`, and `I`; fixed the resulting findings
+  (`raise ... from None` in CLI/applier, import order, simplifications).
+- Added mypy to dev dependencies and CI. Modules with existing type errors are
+  listed in `[[tool.mypy.overrides]]` as explicit debt to burn down.
+- Version is now defined only in `local_engine/__version__.py`; `pyproject.toml`
+  reads it dynamically. Project description now says "task-graph runtime".
+- Renamed phase-named test files to topic names (for example
+  `test_p1_control.py` -> `test_classification_and_quality_gates.py`).
+
+### Cleanup
 
 - Removed dead code: compatibility shims (`runtime/scheduler.py`,
   `runtime/quality_gate.py`, `runtime/recovery.py`), the unwired LLM graph

@@ -7,8 +7,8 @@ from local_engine.graph.dynamic_builder import build_graph
 from local_engine.graph.graph_quality import graph_quality_check
 from local_engine.kernel.schemas import WorkerResult
 from local_engine.runtime.engine import Engine
-from local_engine.runtime.retry import RetryPolicy, run_with_recovery
 from local_engine.runtime.fallback import FallbackPolicy
+from local_engine.runtime.retry import RetryPolicy, run_with_recovery
 
 
 def algorithm_project(tmp_path):

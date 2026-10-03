@@ -7,7 +7,6 @@ from typer.testing import CliRunner
 from local_engine.cli import app
 from local_engine.runtime.engine import Engine
 
-
 pytestmark = pytest.mark.integration
 
 
